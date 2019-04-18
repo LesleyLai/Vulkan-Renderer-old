@@ -21,6 +21,8 @@ constexpr bool vk_enable_validation_layers = false;
 constexpr bool vk_enable_validation_layers = true;
 #endif
 
+constexpr std::array device_extensions = {VK_KHR_SWAPCHAIN_EXTENSION_NAME};
+
 struct QueueFamilyIndices {
   std::optional<uint32_t> graphics_family;
   std::optional<uint32_t> present_family;
@@ -162,7 +164,9 @@ private:
         .setQueueCreateInfoCount(
             static_cast<uint32_t>(queue_create_infos.size()))
         .setPEnabledFeatures(&device_features)
-        .setEnabledExtensionCount(0);
+        .setEnabledExtensionCount(
+            static_cast<uint32_t>(device_extensions.size()))
+        .setPpEnabledExtensionNames(device_extensions.data());
 
     if (vk_enable_validation_layers) {
       create_info.setEnabledLayerCount(validation_layers.size())
@@ -176,12 +180,29 @@ private:
     present_queue_ = device_->getQueue(indices.present_family.value(), 0);
   }
 
+  [[nodiscard]] auto check_device_extension_support(vk::PhysicalDevice device)
+  {
+    const auto available_extensions =
+        device.enumerateDeviceExtensionProperties();
+
+    std::set<std::string> required_extensions(device_extensions.begin(),
+                                              device_extensions.end());
+
+    for (const auto& extension : available_extensions) {
+      required_extensions.erase(extension.extensionName);
+    }
+
+    return required_extensions.empty();
+  }
+
   [[nodiscard]] auto is_physical_device_suitable(vk::PhysicalDevice device)
       -> bool
   {
     QueueFamilyIndices indices = find_queue_families(device);
 
-    return indices.is_complete();
+    const bool extensions_supported = check_device_extension_support(device);
+
+    return indices.is_complete() && extensions_supported;
   }
 
   [[nodiscard]] auto find_queue_families(vk::PhysicalDevice device)
@@ -235,7 +256,8 @@ private:
       bool layer_found = false;
 
       for (const auto& layer_properties : avaiable_layers) {
-        if (strcmp(layerName, layer_properties.layerName) == 0) {
+        if (strcmp(layerName,
+                   static_cast<const char*>(layer_properties.layerName)) == 0) {
           layer_found = true;
           break;
         }
