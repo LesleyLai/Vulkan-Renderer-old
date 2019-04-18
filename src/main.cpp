@@ -6,6 +6,7 @@
 #include <cstring>
 #include <iostream>
 #include <optional>
+#include <set>
 #include <stdexcept>
 #include <vector>
 
@@ -68,6 +69,7 @@ private:
   vk::UniqueDevice device_;
 
   vk::Queue graphics_queue_;
+  vk::Queue present_queue_;
 
   [[nodiscard]] auto create_instance() -> vk::UniqueInstance
   {
@@ -140,17 +142,25 @@ private:
   {
     QueueFamilyIndices indices = find_queue_families(physical_device_);
 
-    const float queue_priority = 1.0f;
-    vk::DeviceQueueCreateInfo queue_create_info;
-    queue_create_info.setQueueFamilyIndex(indices.graphics_family.value())
-        .setQueueCount(1)
-        .setPQueuePriorities(&queue_priority);
+    std::vector<vk::DeviceQueueCreateInfo> queue_create_infos;
+    std::set<uint32_t> unique_queue_families = {indices.graphics_family.value(),
+                                                indices.present_family.value()};
+
+    float queue_priority = 1.0f;
+    for (std::uint32_t queue_family : unique_queue_families) {
+      vk::DeviceQueueCreateInfo create_info;
+      create_info.setQueueFamilyIndex(queue_family)
+          .setQueueCount(1)
+          .setPQueuePriorities(&queue_priority);
+      queue_create_infos.push_back(create_info);
+    }
 
     vk::PhysicalDeviceFeatures device_features;
 
     vk::DeviceCreateInfo create_info;
-    create_info.setPQueueCreateInfos(&queue_create_info)
-        .setQueueCreateInfoCount(1)
+    create_info.setPQueueCreateInfos(queue_create_infos.data())
+        .setQueueCreateInfoCount(
+            static_cast<uint32_t>(queue_create_infos.size()))
         .setPEnabledFeatures(&device_features)
         .setEnabledExtensionCount(0);
 
@@ -162,7 +172,8 @@ private:
     }
 
     device_ = physical_device_.createDeviceUnique(create_info);
-    device_->getQueue(indices.graphics_family.value(), 0, &graphics_queue_);
+    graphics_queue_ = device_->getQueue(indices.graphics_family.value(), 0);
+    present_queue_ = device_->getQueue(indices.present_family.value(), 0);
   }
 
   [[nodiscard]] auto is_physical_device_suitable(vk::PhysicalDevice device)
