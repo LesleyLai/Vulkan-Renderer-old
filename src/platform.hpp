@@ -3,6 +3,8 @@
 
 #include <vector>
 
+#include <vulkan/vulkan.hpp>
+
 struct GLFWwindow;
 
 class Platform {
@@ -25,6 +27,14 @@ public:
    */
   [[nodiscard]] auto get_required_vulkan_extensions()
       -> std::vector<const char*>;
+
+  [[nodiscard]] auto create_vulkan_surface(const vk::Instance& instance) const
+      -> vk::UniqueSurfaceKHR;
+
+  [[nodiscard]] auto window() const -> GLFWwindow*
+  {
+    return window_;
+  }
 
 private:
   GLFWwindow* window_ = nullptr;

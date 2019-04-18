@@ -1,5 +1,7 @@
 #include "platform.hpp"
+
 #include <GLFW/glfw3.h>
+#include <GLFW/glfw3native.h>
 
 Platform::Platform()
 {
@@ -32,6 +34,20 @@ auto Platform::operator=(Platform&& other) noexcept -> Platform&
 void Platform::poll_events()
 {
   glfwPollEvents();
+}
+
+[[nodiscard]] auto
+Platform::create_vulkan_surface(const vk::Instance& instance) const
+    -> vk::UniqueSurfaceKHR
+{
+#if defined(VK_USE_PLATFORM_WIN32_KHR)
+  HWND window = glfwGetWin32Window(window_);
+  vk::Win32SurfaceCreateInfoKHR create_info(vk::Win32SurfaceCreateFlagsKHR(),
+                                            GetModuleHandle(nullptr), window);
+  return instance.createWin32SurfaceKHRUnique(create_info);
+#else
+#pragma error "unhandled platform"
+#endif
 }
 
 [[nodiscard]] auto Platform::get_required_vulkan_extensions()

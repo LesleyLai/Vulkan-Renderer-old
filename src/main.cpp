@@ -1,3 +1,4 @@
+#include <GLFW/glfw3.h>
 #include <vulkan/vulkan.hpp>
 
 #include <array>
@@ -21,10 +22,11 @@ constexpr bool vk_enable_validation_layers = true;
 
 struct QueueFamilyIndices {
   std::optional<uint32_t> graphics_family;
+  std::optional<uint32_t> present_family;
 
-  bool isComplete()
+  bool is_complete()
   {
-    return graphics_family.has_value();
+    return graphics_family.has_value() && present_family.has_value();
   }
 };
 
@@ -43,13 +45,16 @@ public:
   Application() : instance_{create_instance()}, dldy_{create_dynamic_loader()}
   {
     setup_debug_messenger();
+    surface_ = platform_.create_vulkan_surface(instance_.get());
     pick_physical_device();
     create_logical_device();
   }
 
   void exec()
   {
-    mainLoop();
+    while (!platform_.should_close()) {
+      platform_.poll_events();
+    }
   }
 
 private:
@@ -58,17 +63,11 @@ private:
   vk::DispatchLoaderDynamic dldy_;
   vk::UniqueHandle<vk::DebugUtilsMessengerEXT, vk::DispatchLoaderDynamic>
       debug_messenger_;
+  vk::UniqueSurfaceKHR surface_;
   vk::PhysicalDevice physical_device_ = nullptr;
   vk::UniqueDevice device_;
 
   vk::Queue graphics_queue_;
-
-  void mainLoop()
-  {
-    while (!platform_.should_close()) {
-      platform_.poll_events();
-    }
-  }
 
   [[nodiscard]] auto create_instance() -> vk::UniqueInstance
   {
@@ -139,7 +138,7 @@ private:
 
   void create_logical_device()
   {
-    QueueFamilyIndices indices = findQueueFamilies(physical_device_);
+    QueueFamilyIndices indices = find_queue_families(physical_device_);
 
     const float queue_priority = 1.0f;
     vk::DeviceQueueCreateInfo queue_create_info;
@@ -169,26 +168,32 @@ private:
   [[nodiscard]] auto is_physical_device_suitable(vk::PhysicalDevice device)
       -> bool
   {
-    QueueFamilyIndices indices = findQueueFamilies(device);
+    QueueFamilyIndices indices = find_queue_families(device);
 
-    return indices.isComplete();
+    return indices.is_complete();
   }
 
-  [[nodiscard]] auto findQueueFamilies(vk::PhysicalDevice device)
+  [[nodiscard]] auto find_queue_families(vk::PhysicalDevice device)
       -> QueueFamilyIndices
   {
     QueueFamilyIndices indices;
-
     const auto queue_family_properties = device.getQueueFamilyProperties();
 
-    int i = 0;
+    unsigned int i = 0;
     for (const auto& property : queue_family_properties) {
       if (property.queueCount > 0 &&
           property.queueFlags & vk::QueueFlagBits::eGraphics) {
         indices.graphics_family = i;
       }
 
-      if (indices.isComplete()) {
+      vk::Bool32 present_support = false;
+      device.getSurfaceSupportKHR(i, surface_.get(), &present_support, dldy_);
+
+      if (property.queueCount > 0 && present_support) {
+        indices.present_family = i;
+      }
+
+      if (indices.is_complete()) {
         break;
       }
 
@@ -198,7 +203,7 @@ private:
     return indices;
   }
 
-  auto get_required_extensions() -> std::vector<const char*>
+  [[nodiscard]] auto get_required_extensions() -> std::vector<const char*>
   {
     std::vector<const char*> extensions =
         platform_.get_required_vulkan_extensions();
