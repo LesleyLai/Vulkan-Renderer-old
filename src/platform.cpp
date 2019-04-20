@@ -1,11 +1,11 @@
 #include "platform.hpp"
 
 #include <GLFW/glfw3.h>
-#include <GLFW/glfw3native.h>
 
 Platform::Platform()
 {
   glfwInit();
+  glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
   window_ = glfwCreateWindow(1440, 900, "Vulkan", nullptr, nullptr);
 }
 
@@ -26,12 +26,12 @@ auto Platform::operator=(Platform&& other) noexcept -> Platform&
   return *this;
 }
 
-[[nodiscard]] auto Platform::should_close() -> bool
+[[nodiscard]] auto Platform::should_close() noexcept -> bool
 {
   return glfwWindowShouldClose(window_);
 }
 
-void Platform::poll_events()
+void Platform::poll_events() noexcept
 {
   glfwPollEvents();
 }
@@ -47,14 +47,11 @@ void Platform::poll_events()
 Platform::create_vulkan_surface(const vk::Instance& instance) const
     -> vk::UniqueSurfaceKHR
 {
-#if defined(VK_USE_PLATFORM_WIN32_KHR)
-  HWND window = glfwGetWin32Window(window_);
-  vk::Win32SurfaceCreateInfoKHR create_info(vk::Win32SurfaceCreateFlagsKHR(),
-                                            GetModuleHandle(nullptr), window);
-  return instance.createWin32SurfaceKHRUnique(create_info);
-#else
-#pragma error "unhandled platform"
-#endif
+  VkSurfaceKHR surface;
+  glfwCreateWindowSurface(instance, window_, nullptr, &surface);
+  vk::UniqueSurfaceKHR unique_surface;
+  unique_surface.get() = surface;
+  return unique_surface;
 }
 
 [[nodiscard]] auto Platform::get_required_vulkan_extensions()

@@ -19,9 +19,7 @@ if (BP_ENABLE_CPPCHECK)
 include("cppcheck")
 endif()
 
-if(WIN32)
-    add_compile_definitions(VK_USE_PLATFORM_WIN32_KHR)
-    add_compile_definitions(GLFW_EXPOSE_NATIVE_WIN32)
+if(MSVC)
     add_compile_definitions(NOMINMAX)
 endif()
 

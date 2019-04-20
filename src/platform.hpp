@@ -23,9 +23,9 @@ public:
   Platform(Platform&& other) noexcept;
   auto operator=(Platform&& other) noexcept -> Platform&;
 
-  [[nodiscard]] auto should_close() -> bool;
+  [[nodiscard]] auto should_close() noexcept -> bool;
 
-  void poll_events();
+  void poll_events() noexcept;
 
   [[nodiscard]] auto get_resolution() const noexcept -> Resolution;
 
@@ -38,7 +38,7 @@ public:
   [[nodiscard]] auto create_vulkan_surface(const vk::Instance& instance) const
       -> vk::UniqueSurfaceKHR;
 
-  [[nodiscard]] auto window() const -> GLFWwindow*
+  [[nodiscard]] auto window() const noexcept -> GLFWwindow*
   {
     return window_;
   }
