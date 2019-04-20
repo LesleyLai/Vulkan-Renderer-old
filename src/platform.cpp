@@ -6,7 +6,7 @@
 Platform::Platform()
 {
   glfwInit();
-  window_ = glfwCreateWindow(800, 600, "Vulkan", nullptr, nullptr);
+  window_ = glfwCreateWindow(1440, 900, "Vulkan", nullptr, nullptr);
 }
 
 Platform::~Platform()
@@ -34,6 +34,13 @@ auto Platform::operator=(Platform&& other) noexcept -> Platform&
 void Platform::poll_events()
 {
   glfwPollEvents();
+}
+
+[[nodiscard]] auto Platform::get_resolution() const noexcept -> Resolution
+{
+  int width, height;
+  glfwGetWindowSize(window_, &width, &height);
+  return Resolution{width, height};
 }
 
 [[nodiscard]] auto

@@ -7,6 +7,11 @@
 
 struct GLFWwindow;
 
+struct Resolution {
+  int width;
+  int height;
+};
+
 class Platform {
 public:
   Platform();
@@ -21,6 +26,8 @@ public:
   [[nodiscard]] auto should_close() -> bool;
 
   void poll_events();
+
+  [[nodiscard]] auto get_resolution() const noexcept -> Resolution;
 
   /**
    * @brief Returns the Vulkan instance extensions required by the platform.
