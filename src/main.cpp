@@ -11,6 +11,7 @@
 #include <vector>
 
 #include "platform.hpp"
+#include "shader_module.hpp"
 
 constexpr std::array validation_layers = {
     "VK_LAYER_LUNARG_standard_validation"};
@@ -129,6 +130,7 @@ public:
     create_logical_device();
     create_swap_chain();
     create_image_views();
+    create_graphics_pipeline();
   }
 
   void exec()
@@ -338,6 +340,29 @@ private:
       swapchain_image_views_.emplace_back(
           device_->createImageViewUnique(create_info));
     }
+  }
+
+  void create_graphics_pipeline()
+  {
+    auto vert_shader_module =
+        create_shader_module("shaders/vert.spv", *device_);
+    auto frag_shader_module =
+        create_shader_module("shaders/frag.spv", *device_);
+
+    const vk::PipelineShaderStageCreateInfo vert_shader_stage_info;
+    vert_shader_stage_info.setStage(vk::ShaderStageFlagBits::eVertex)
+        .setModule(*vert_shader_module)
+        .setPName("main");
+
+    const vk::PipelineShaderStageCreateInfo frag_shader_stage_info;
+    frag_shader_stage_info.setStage(vk::ShaderStageFlagBits::eFragment)
+        .setModule(*frag_shader_module)
+        .setPName("main");
+
+    /*
+    VkPipelineShaderStageCreateInfo shaderStages[] = {vertShaderStageInfo,
+    fragShaderStageInfo};
+    */
   }
 
   [[nodiscard]] auto

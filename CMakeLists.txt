@@ -23,5 +23,10 @@ if(MSVC)
     add_compile_definitions(NOMINMAX)
 endif()
 
+add_custom_target(assets
+        COMMAND ${CMAKE_COMMAND} -E copy_directory
+        ${CMAKE_SOURCE_DIR}/data ${CMAKE_CURRENT_BINARY_DIR}/bin
+        )
+
 add_subdirectory(third-party)
 add_subdirectory(src)
