@@ -128,6 +128,7 @@ public:
     pick_physical_device();
     create_logical_device();
     create_swap_chain();
+    create_image_views();
   }
 
   void exec()
@@ -153,6 +154,7 @@ private:
   std::vector<vk::Image> swapchain_images_;
   vk::Format swapchain_image_format_;
   vk::Extent2D swapchain_extent_;
+  std::vector<vk::UniqueImageView> swapchain_image_views_;
 
   [[nodiscard]] auto create_instance() -> vk::UniqueInstance
   {
@@ -312,6 +314,30 @@ private:
     swapchain_images_ = device_->getSwapchainImagesKHR(swapchain_.get());
     swapchain_image_format_ = surface_format.format;
     swapchain_extent_ = extent;
+  }
+
+  void create_image_views()
+  {
+    swapchain_image_views_.reserve(swapchain_images_.size());
+
+    for (const auto& image : swapchain_images_) {
+      vk::ImageSubresourceRange subresource_range;
+      subresource_range.setAspectMask(vk::ImageAspectFlagBits::eColor)
+          .setBaseMipLevel(0)
+          .setLevelCount(1)
+          .setBaseArrayLayer(0)
+          .setLayerCount(1);
+
+      vk::ImageViewCreateInfo create_info;
+      create_info.setImage(image)
+          .setViewType(vk::ImageViewType::e2D)
+          .setFormat(swapchain_image_format_)
+          .setComponents(vk::ComponentMapping{})
+          .setSubresourceRange(subresource_range);
+
+      swapchain_image_views_.emplace_back(
+          device_->createImageViewUnique(create_info));
+    }
   }
 
   [[nodiscard]] auto
