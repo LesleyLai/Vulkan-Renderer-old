@@ -124,7 +124,7 @@ public:
   Application() : instance_{create_instance()}, dldy_{create_dynamic_loader()}
   {
     setup_debug_messenger();
-    surface_ = platform_.create_vulkan_surface(instance_.get());
+    surface_ = platform_.create_vulkan_surface(instance_.get(), dldy_);
     pick_physical_device();
     create_logical_device();
     create_swap_chain();
@@ -143,7 +143,7 @@ private:
   vk::DispatchLoaderDynamic dldy_;
   vk::UniqueHandle<vk::DebugUtilsMessengerEXT, vk::DispatchLoaderDynamic>
       debug_messenger_;
-  vk::UniqueSurfaceKHR surface_;
+  vk::UniqueHandle<vk::SurfaceKHR, vk::DispatchLoaderDynamic> surface_;
   vk::PhysicalDevice physical_device_ = nullptr;
   vk::UniqueDevice device_;
 

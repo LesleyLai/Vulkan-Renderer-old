@@ -44,14 +44,17 @@ void Platform::poll_events() noexcept
 }
 
 [[nodiscard]] auto
-Platform::create_vulkan_surface(const vk::Instance& instance) const
-    -> vk::UniqueSurfaceKHR
+Platform::create_vulkan_surface(const vk::Instance& instance,
+                                const vk::DispatchLoaderDynamic& dldy) const
+    -> vk::UniqueHandle<vk::SurfaceKHR, vk::DispatchLoaderDynamic>
 {
   VkSurfaceKHR surface;
   glfwCreateWindowSurface(instance, window_, nullptr, &surface);
-  vk::UniqueSurfaceKHR unique_surface;
-  unique_surface.get() = surface;
-  return unique_surface;
+
+  const vk::ObjectDestroy<vk::Instance, vk::DispatchLoaderDynamic> destroyer(
+      instance, nullptr, dldy);
+  return vk::UniqueHandle<vk::SurfaceKHR, vk::DispatchLoaderDynamic>{
+      vk::SurfaceKHR{surface}, destroyer};
 }
 
 [[nodiscard]] auto Platform::get_required_vulkan_extensions()

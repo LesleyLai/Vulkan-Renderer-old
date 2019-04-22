@@ -35,8 +35,10 @@ public:
   [[nodiscard]] auto get_required_vulkan_extensions()
       -> std::vector<const char*>;
 
-  [[nodiscard]] auto create_vulkan_surface(const vk::Instance& instance) const
-      -> vk::UniqueSurfaceKHR;
+  [[nodiscard]] auto
+  create_vulkan_surface(const vk::Instance& instance,
+                        const vk::DispatchLoaderDynamic& dldy) const
+      -> vk::UniqueHandle<vk::SurfaceKHR, vk::DispatchLoaderDynamic>;
 
   [[nodiscard]] auto window() const noexcept -> GLFWwindow*
   {
