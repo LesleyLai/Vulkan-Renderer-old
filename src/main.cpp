@@ -349,12 +349,12 @@ private:
     auto frag_shader_module =
         create_shader_module("shaders/frag.spv", *device_);
 
-    const vk::PipelineShaderStageCreateInfo vert_shader_stage_info;
+    vk::PipelineShaderStageCreateInfo vert_shader_stage_info;
     vert_shader_stage_info.setStage(vk::ShaderStageFlagBits::eVertex)
         .setModule(*vert_shader_module)
         .setPName("main");
 
-    const vk::PipelineShaderStageCreateInfo frag_shader_stage_info;
+    vk::PipelineShaderStageCreateInfo frag_shader_stage_info;
     frag_shader_stage_info.setStage(vk::ShaderStageFlagBits::eFragment)
         .setModule(*frag_shader_module)
         .setPName("main");

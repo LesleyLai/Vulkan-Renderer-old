@@ -49,7 +49,8 @@ Platform::create_vulkan_surface(const vk::Instance& instance,
     -> vk::UniqueHandle<vk::SurfaceKHR, vk::DispatchLoaderDynamic>
 {
   VkSurfaceKHR surface;
-  glfwCreateWindowSurface(instance, window_, nullptr, &surface);
+  glfwCreateWindowSurface(static_cast<VkInstance>(instance), window_, nullptr,
+                          &surface);
 
   const vk::ObjectDestroy<vk::Instance, vk::DispatchLoaderDynamic> destroyer(
       instance, nullptr, dldy);
