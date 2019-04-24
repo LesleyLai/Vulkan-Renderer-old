@@ -132,6 +132,7 @@ public:
     create_image_views();
     create_render_pass();
     create_graphics_pipeline();
+    create_frame_buffers();
   }
 
   void exec()
@@ -162,6 +163,8 @@ private:
   vk::UniqueRenderPass render_pass_;
   vk::UniquePipelineLayout pipeline_layout_;
   vk::UniquePipeline graphics_pipeline_;
+
+  std::vector<vk::UniqueFramebuffer> swapchain_framebuffer_;
 
   [[nodiscard]] auto create_instance() -> vk::UniqueInstance
   {
@@ -469,6 +472,25 @@ private:
 
     graphics_pipeline_ =
         device_->createGraphicsPipelineUnique(nullptr, pipeline_create_info);
+  }
+
+  void create_frame_buffers()
+  {
+    swapchain_framebuffer_.reserve(swapchain_image_views_.size());
+    for (const auto& image_view : swapchain_image_views_) {
+      std::array attachments{*image_view};
+
+      vk::FramebufferCreateInfo create_info;
+      create_info.setRenderPass(*render_pass_)
+          .setAttachmentCount(attachments.size())
+          .setPAttachments(attachments.data())
+          .setWidth(swapchain_extent_.width)
+          .setHeight(swapchain_extent_.height)
+          .setLayers(1);
+
+      swapchain_framebuffer_.emplace_back(
+          device_->createFramebufferUnique(create_info));
+    }
   }
 
   [[nodiscard]] auto
