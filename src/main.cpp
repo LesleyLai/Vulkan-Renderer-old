@@ -133,6 +133,8 @@ public:
     create_render_pass();
     create_graphics_pipeline();
     create_frame_buffers();
+    create_command_pool();
+    create_command_buffers();
   }
 
   void exec()
@@ -165,6 +167,9 @@ private:
   vk::UniquePipeline graphics_pipeline_;
 
   std::vector<vk::UniqueFramebuffer> swapchain_framebuffer_;
+
+  vk::UniqueCommandPool command_pool_;
+  std::vector<vk::CommandBuffer> command_buffers_;
 
   [[nodiscard]] auto create_instance() -> vk::UniqueInstance
   {
@@ -490,6 +495,61 @@ private:
 
       swapchain_framebuffer_.emplace_back(
           device_->createFramebufferUnique(create_info));
+    }
+  }
+
+  void create_command_pool()
+  {
+    const QueueFamilyIndices queue_family_indices =
+        find_queue_families(physical_device_);
+
+    const vk::CommandPoolCreateInfo create_info{
+        {}, queue_family_indices.graphics_family.value()};
+
+    command_pool_ = device_->createCommandPoolUnique(create_info);
+  }
+
+  void create_command_buffers()
+  {
+    const auto command_buffers_count = swapchain_framebuffer_.size();
+
+    vk::CommandBufferAllocateInfo alloc_info;
+    alloc_info.setCommandPool(*command_pool_)
+        .setLevel(vk::CommandBufferLevel::ePrimary)
+        .setCommandBufferCount(
+            static_cast<std::uint32_t>(command_buffers_count));
+
+    command_buffers_ = device_->allocateCommandBuffers(alloc_info);
+
+    for (size_t i = 0; i < command_buffers_count; ++i) {
+      const auto& command_buffer = command_buffers_[i];
+
+      const vk::CommandBufferBeginInfo command_buffer_begin_info{
+          vk::CommandBufferUsageFlagBits::eSimultaneousUse, nullptr};
+
+      command_buffer.begin(&command_buffer_begin_info);
+
+      vk::RenderPassBeginInfo render_pass_begin_info;
+      render_pass_begin_info.setRenderPass(*render_pass_)
+          .setFramebuffer(*swapchain_framebuffer_[i])
+          .setRenderArea(vk::Rect2D{{0, 0}, swapchain_extent_});
+
+      vk::ClearValue clear_color{
+          vk::ClearColorValue(std::array{0.f, 0.f, 1.f, 1.f})};
+      render_pass_begin_info.setClearValueCount(1).setPClearValues(
+          &clear_color);
+
+      command_buffer.beginRenderPass(&render_pass_begin_info,
+                                     vk::SubpassContents::eInline);
+
+      command_buffer.bindPipeline(vk::PipelineBindPoint::eGraphics,
+                                  *graphics_pipeline_);
+
+      command_buffer.draw(3, 1, 0, 0);
+
+      command_buffer.endRenderPass();
+
+      command_buffer.end();
     }
   }
 
