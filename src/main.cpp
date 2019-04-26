@@ -24,6 +24,8 @@ constexpr bool vk_enable_validation_layers = true;
 
 constexpr std::array device_extensions = {VK_KHR_SWAPCHAIN_EXTENSION_NAME};
 
+constexpr std::size_t frames_in_flight = 2;
+
 struct SwapChainSupportDetails {
   vk::SurfaceCapabilitiesKHR capabilities;
   std::vector<vk::SurfaceFormatKHR> formats;
@@ -135,13 +137,17 @@ public:
     create_frame_buffers();
     create_command_pool();
     create_command_buffers();
+    create_sync_objects();
   }
 
   void exec()
   {
     while (!platform_.should_close()) {
       platform_.poll_events();
+      render();
     }
+
+    device_->waitIdle();
   }
 
 private:
@@ -170,6 +176,11 @@ private:
 
   vk::UniqueCommandPool command_pool_;
   std::vector<vk::CommandBuffer> command_buffers_;
+
+  std::array<vk::UniqueSemaphore, 2> image_available_semaphores;
+  std::array<vk::UniqueSemaphore, 2> render_finished_semaphores;
+  std::array<vk::UniqueFence, 2> in_flight_fences;
+  size_t current_frame = 0;
 
   [[nodiscard]] auto create_instance() -> vk::UniqueInstance
   {
@@ -376,11 +387,22 @@ private:
         .setColorAttachmentCount(1)
         .setPColorAttachments(&color_attachment_ref);
 
+    vk::SubpassDependency dependency{};
+    dependency.setSrcSubpass(VK_SUBPASS_EXTERNAL)
+        .setDstSubpass(0)
+        .setSrcStageMask(vk::PipelineStageFlagBits::eColorAttachmentOutput)
+        .setSrcAccessMask(vk::AccessFlags{})
+        .setDstStageMask(vk::PipelineStageFlagBits::eColorAttachmentOutput)
+        .setDstAccessMask(vk::AccessFlagBits::eColorAttachmentRead |
+                          vk::AccessFlagBits::eColorAttachmentWrite);
+
     vk::RenderPassCreateInfo render_pass_create_info;
     render_pass_create_info.setAttachmentCount(1)
         .setPAttachments(&color_attachment)
         .setSubpassCount(1)
-        .setPSubpasses(&subpass);
+        .setPSubpasses(&subpass)
+        .setDependencyCount(1)
+        .setPDependencies(&dependency);
 
     render_pass_ = device_->createRenderPassUnique(render_pass_create_info);
   }
@@ -553,6 +575,76 @@ private:
     }
   }
 
+  void create_sync_objects()
+  {
+    vk::SemaphoreCreateInfo semaphore_create_info;
+    vk::FenceCreateInfo fence_create_info{vk::FenceCreateFlagBits::eSignaled};
+    for (size_t i = 0; i < frames_in_flight; ++i) {
+      image_available_semaphores[i] =
+          device_->createSemaphoreUnique(semaphore_create_info);
+      render_finished_semaphores[i] =
+          device_->createSemaphoreUnique(semaphore_create_info);
+      in_flight_fences[i] = device_->createFenceUnique(fence_create_info);
+    }
+  }
+
+  void render()
+  {
+    device_->waitForFences(1, &(*in_flight_fences[current_frame]), true,
+                           std::numeric_limits<uint64_t>::max());
+    device_->resetFences(1, &*in_flight_fences[current_frame]);
+    /*
+
+    vkWaitForFences(device, 1, &inFlightFences[currentFrame], VK_TRUE,
+    std::numeric_limits<uint64_t>::max()); vkResetFences(device, 1,
+    &inFlightFences[currentFrame]);
+*/
+
+    const uint32_t image_index =
+        device_
+            ->acquireNextImageKHR(
+                *swapchain_, std::numeric_limits<uint64_t>::max(),
+                *image_available_semaphores[current_frame], nullptr)
+            .value;
+
+    vk::SubmitInfo submit_info;
+    const std::array wait_semaphores = {
+        *image_available_semaphores[current_frame]};
+    const std::array wait_stages{vk::PipelineStageFlags{
+        vk::PipelineStageFlagBits::eColorAttachmentOutput}};
+    const std::array signal_semaphores = {
+        *render_finished_semaphores[current_frame]};
+
+    submit_info
+        .setWaitSemaphoreCount(
+            static_cast<std::uint32_t>(wait_semaphores.size()))
+        .setPWaitSemaphores(wait_semaphores.data())
+        .setPWaitDstStageMask(wait_stages.data())
+        .setCommandBufferCount(1)
+        .setPCommandBuffers(&command_buffers_[image_index])
+        .setSignalSemaphoreCount(
+            static_cast<std::uint32_t>(signal_semaphores.size()))
+        .setPSignalSemaphores(signal_semaphores.data());
+
+    graphics_queue_.submit(1, &submit_info, *in_flight_fences[current_frame]);
+
+    vk::PresentInfoKHR present_info;
+    present_info
+        .setWaitSemaphoreCount(
+            static_cast<unsigned int>(signal_semaphores.size()))
+        .setPWaitSemaphores(signal_semaphores.data());
+
+    const std::array swap_chains{*swapchain_};
+    present_info
+        .setSwapchainCount(static_cast<unsigned int>(swap_chains.size()))
+        .setPSwapchains(swap_chains.data())
+        .setPImageIndices(&image_index);
+
+    present_queue_.presentKHR(&present_info);
+
+    current_frame = (current_frame + 1) % frames_in_flight;
+  }
+
   [[nodiscard]] auto
   check_device_extension_support(const vk::PhysicalDevice& device)
   {
@@ -602,7 +694,7 @@ private:
       }
 
       vk::Bool32 present_support = false;
-      device.getSurfaceSupportKHR(i, surface_.get(), &present_support, dldy_);
+      device.getSurfaceSupportKHR(i, surface_.get(), &present_support);
 
       if (property.queueCount > 0 && present_support) {
         indices.present_family = i;
