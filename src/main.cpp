@@ -1,5 +1,7 @@
 #include <vulkan/vulkan.hpp>
 
+#include <GLFW/glfw3.h>
+
 #include <array>
 #include <cstdlib>
 #include <cstring>
@@ -91,12 +93,13 @@ choose_swap_extent(const vk::SurfaceCapabilitiesKHR& capabilities,
     VkExtent2D actual_extent{static_cast<std::uint32_t>(res.width),
                              static_cast<std::uint32_t>(res.height)};
 
-    actual_extent.width = std::max(
-        capabilities.minImageExtent.width,
-        std::min(capabilities.maxImageExtent.width, actual_extent.width));
-    actual_extent.height = std::max(
-        capabilities.minImageExtent.height,
-        std::min(capabilities.maxImageExtent.height, actual_extent.height));
+    actual_extent.width =
+        std::clamp(actual_extent.width, capabilities.minImageExtent.width,
+                   capabilities.maxImageExtent.width);
+
+    actual_extent.height =
+        std::clamp(actual_extent.height, capabilities.minImageExtent.height,
+                   capabilities.maxImageExtent.height);
 
     return actual_extent;
   }
@@ -122,10 +125,19 @@ static VKAPI_ATTR auto VKAPI_CALL vk_debug_callback(
   return VK_FALSE;
 }
 
+static void framebuffer_resize_callback(GLFWwindow* window, int width,
+                                        int height);
+
 class Application {
 public:
+  bool frame_buffer_resized = false;
+
   Application() : instance_{create_instance()}, dldy_{create_dynamic_loader()}
   {
+    glfwSetFramebufferSizeCallback(platform_.window(),
+                                   framebuffer_resize_callback);
+    glfwSetWindowUserPointer(platform_.window(), this);
+
     setup_debug_messenger();
     surface_ = platform_.create_vulkan_surface(instance_.get(), dldy_);
     pick_physical_device();
@@ -139,6 +151,12 @@ public:
     create_command_buffers();
     create_sync_objects();
   }
+
+  ~Application() = default;
+  Application(const Application&) = delete;
+  Application& operator=(const Application&) = delete;
+  Application(Application&&) = delete;
+  Application& operator=(Application&&) = delete;
 
   void exec()
   {
@@ -172,7 +190,7 @@ private:
   vk::UniquePipelineLayout pipeline_layout_;
   vk::UniquePipeline graphics_pipeline_;
 
-  std::vector<vk::UniqueFramebuffer> swapchain_framebuffer_;
+  std::vector<vk::UniqueFramebuffer> swapchain_framebuffers_;
 
   vk::UniqueCommandPool command_pool_;
   std::vector<vk::CommandBuffer> command_buffers_;
@@ -344,6 +362,7 @@ private:
 
   void create_image_views()
   {
+    swapchain_image_views_.clear();
     swapchain_image_views_.reserve(swapchain_images_.size());
 
     for (const auto& image : swapchain_images_) {
@@ -503,7 +522,8 @@ private:
 
   void create_frame_buffers()
   {
-    swapchain_framebuffer_.reserve(swapchain_image_views_.size());
+    swapchain_framebuffers_.clear();
+    swapchain_framebuffers_.reserve(swapchain_image_views_.size());
     for (const auto& image_view : swapchain_image_views_) {
       std::array attachments{*image_view};
 
@@ -515,7 +535,7 @@ private:
           .setHeight(swapchain_extent_.height)
           .setLayers(1);
 
-      swapchain_framebuffer_.emplace_back(
+      swapchain_framebuffers_.emplace_back(
           device_->createFramebufferUnique(create_info));
     }
   }
@@ -533,7 +553,7 @@ private:
 
   void create_command_buffers()
   {
-    const auto command_buffers_count = swapchain_framebuffer_.size();
+    const auto command_buffers_count = swapchain_framebuffers_.size();
 
     vk::CommandBufferAllocateInfo alloc_info;
     alloc_info.setCommandPool(*command_pool_)
@@ -553,7 +573,7 @@ private:
 
       vk::RenderPassBeginInfo render_pass_begin_info;
       render_pass_begin_info.setRenderPass(*render_pass_)
-          .setFramebuffer(*swapchain_framebuffer_[i])
+          .setFramebuffer(*swapchain_framebuffers_[i])
           .setRenderArea(vk::Rect2D{{0, 0}, swapchain_extent_});
 
       vk::ClearValue clear_color{
@@ -588,24 +608,43 @@ private:
     }
   }
 
+  void recreate_swapchain()
+  {
+    frame_buffer_resized = false;
+
+    Resolution res{0, 0};
+    while (res.width == 0 && res.height == 0) {
+      res = platform_.get_resolution();
+      glfwWaitEvents();
+    }
+
+    device_->waitIdle();
+
+    swapchain_.reset();
+
+    create_swap_chain();
+    create_image_views();
+    create_render_pass();
+    create_graphics_pipeline();
+    create_frame_buffers();
+    create_command_buffers();
+  }
+
   void render()
   {
     device_->waitForFences(1, &(*in_flight_fences[current_frame]), true,
                            std::numeric_limits<uint64_t>::max());
-    device_->resetFences(1, &*in_flight_fences[current_frame]);
-    /*
 
-    vkWaitForFences(device, 1, &inFlightFences[currentFrame], VK_TRUE,
-    std::numeric_limits<uint64_t>::max()); vkResetFences(device, 1,
-    &inFlightFences[currentFrame]);
-*/
+    auto [result, image_index] = device_->acquireNextImageKHR(
+        *swapchain_, std::numeric_limits<uint64_t>::max(),
+        *image_available_semaphores[current_frame], nullptr);
 
-    const uint32_t image_index =
-        device_
-            ->acquireNextImageKHR(
-                *swapchain_, std::numeric_limits<uint64_t>::max(),
-                *image_available_semaphores[current_frame], nullptr)
-            .value;
+    if (result == vk::Result::eErrorOutOfDateKHR ||
+        result == vk::Result::eSuboptimalKHR) {
+      recreate_swapchain();
+      return;
+    }
+    assert(result == vk::Result::eSuccess);
 
     vk::SubmitInfo submit_info;
     const std::array wait_semaphores = {
@@ -626,6 +665,8 @@ private:
             static_cast<std::uint32_t>(signal_semaphores.size()))
         .setPSignalSemaphores(signal_semaphores.data());
 
+    device_->resetFences(1, &*in_flight_fences[current_frame]);
+
     graphics_queue_.submit(1, &submit_info, *in_flight_fences[current_frame]);
 
     vk::PresentInfoKHR present_info;
@@ -640,7 +681,13 @@ private:
         .setPSwapchains(swap_chains.data())
         .setPImageIndices(&image_index);
 
-    present_queue_.presentKHR(&present_info);
+    result = present_queue_.presentKHR(&present_info);
+
+    if (result == vk::Result::eErrorOutOfDateKHR ||
+        result == vk::Result::eSuboptimalKHR || frame_buffer_resized) {
+      recreate_swapchain();
+    }
+    assert(result == vk::Result::eSuccess);
 
     current_frame = (current_frame + 1) % frames_in_flight;
   }
@@ -748,8 +795,18 @@ private:
   }
 };
 
-int main()
+static void framebuffer_resize_callback(GLFWwindow* window, int /*width*/,
+                                        int /*height*/)
 {
+  auto app = reinterpret_cast<Application*>(glfwGetWindowUserPointer(window));
+  app->frame_buffer_resized = true;
+}
+
+int main() try {
   Application app;
   app.exec();
+} catch (const std::exception& e) {
+  std::cerr << "Error: " << e.what() << '\n';
+} catch (...) {
+  std::cerr << "Unknown exception thrown!\n";
 }
