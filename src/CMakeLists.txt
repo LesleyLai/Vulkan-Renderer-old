@@ -6,7 +6,7 @@ add_executable(VulkanRenderer "main.cpp"
 target_link_libraries(VulkanRenderer
     PRIVATE compiler_warnings
     Vulkan::Vulkan
-    glfw ${GLFW_LIBRARIES}
+    CONAN_PKG::glfw
     )
 
 set_target_properties(VulkanRenderer PROPERTIES RUNTIME_OUTPUT_DIRECTORY

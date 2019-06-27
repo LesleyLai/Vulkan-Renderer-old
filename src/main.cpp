@@ -15,8 +15,7 @@
 #include "platform.hpp"
 #include "shader_module.hpp"
 
-constexpr std::array validation_layers = {
-    "VK_LAYER_LUNARG_standard_validation"};
+constexpr std::array validation_layers = {"VK_LAYER_KHRONOS_validation"};
 
 #ifdef NDEBUG
 constexpr bool vk_enable_validation_layers = false;
@@ -802,7 +801,8 @@ static void framebuffer_resize_callback(GLFWwindow* window, int /*width*/,
   app->frame_buffer_resized = true;
 }
 
-int main() try {
+int main()
+try {
   Application app;
   app.exec();
 } catch (const std::exception& e) {
