@@ -72,7 +72,8 @@ struct SwapChainSupportDetails {
   for (const auto& available_present_mode : available_present_modes) {
     if (available_present_mode == vk::PresentModeKHR::eMailbox) {
       return available_present_mode;
-    } else if (available_present_mode == vk::PresentModeKHR::eImmediate) {
+    }
+    if (available_present_mode == vk::PresentModeKHR::eImmediate) {
       best_mode = available_present_mode;
     }
   }
@@ -87,21 +88,20 @@ choose_swap_extent(const vk::SurfaceCapabilitiesKHR& capabilities,
   if (capabilities.currentExtent.width !=
       std::numeric_limits<std::uint32_t>::max()) {
     return capabilities.currentExtent;
-  } else {
-    const auto res = platform.get_resolution();
-    VkExtent2D actual_extent{static_cast<std::uint32_t>(res.width),
-                             static_cast<std::uint32_t>(res.height)};
-
-    actual_extent.width =
-        std::clamp(actual_extent.width, capabilities.minImageExtent.width,
-                   capabilities.maxImageExtent.width);
-
-    actual_extent.height =
-        std::clamp(actual_extent.height, capabilities.minImageExtent.height,
-                   capabilities.maxImageExtent.height);
-
-    return actual_extent;
   }
+  const auto res = platform.get_resolution();
+  VkExtent2D actual_extent{static_cast<std::uint32_t>(res.width),
+                           static_cast<std::uint32_t>(res.height)};
+
+  actual_extent.width =
+      std::clamp(actual_extent.width, capabilities.minImageExtent.width,
+                 capabilities.maxImageExtent.width);
+
+  actual_extent.height =
+      std::clamp(actual_extent.height, capabilities.minImageExtent.height,
+                 capabilities.maxImageExtent.height);
+
+  return actual_extent;
 }
 
 struct QueueFamilyIndices {
@@ -139,7 +139,7 @@ public:
 
     setup_debug_messenger();
     surface_ = platform_.create_vulkan_surface(instance_.get(), dldy_);
-    pick_physical_device();
+    physical_device_ = pick_physical_device();
     create_logical_device();
     create_swap_chain();
     create_image_views();
@@ -174,7 +174,7 @@ private:
   vk::UniqueHandle<vk::DebugUtilsMessengerEXT, vk::DispatchLoaderDynamic>
       debug_messenger_;
   vk::UniqueHandle<vk::SurfaceKHR, vk::DispatchLoaderDynamic> surface_;
-  vk::PhysicalDevice physical_device_ = nullptr;
+  vk::PhysicalDevice physical_device_;
   vk::UniqueDevice device_;
 
   vk::Queue graphics_queue_;
@@ -251,19 +251,19 @@ private:
         create_info, nullptr, dldy_);
   }
 
-  void pick_physical_device()
+  [[nodiscard]] auto pick_physical_device() -> vk::PhysicalDevice
   {
     const auto devices = instance_->enumeratePhysicalDevices();
     assert(!devices.empty());
 
     for (const auto& device : devices) {
       if (is_physical_device_suitable(device)) {
-        physical_device_ = device;
-        break;
+        return device;
       }
     }
 
-    assert(physical_device_);
+    std::cerr << "Cannot find suitable physical device for Vulkan\n";
+    return nullptr;
   }
 
   void create_logical_device()
@@ -274,7 +274,7 @@ private:
     std::set<uint32_t> unique_queue_families = {indices.graphics_family.value(),
                                                 indices.present_family.value()};
 
-    float queue_priority = 1.0f;
+    float queue_priority = 1.0F;
     for (std::uint32_t queue_family : unique_queue_families) {
       vk::DeviceQueueCreateInfo create_info;
       create_info.setQueueFamilyIndex(queue_family)
@@ -681,12 +681,10 @@ private:
         .setPImageIndices(&image_index);
 
     result = present_queue_.presentKHR(&present_info);
-
     if (result == vk::Result::eErrorOutOfDateKHR ||
         result == vk::Result::eSuboptimalKHR || frame_buffer_resized) {
       recreate_swapchain();
     }
-    assert(result == vk::Result::eSuccess);
 
     current_frame = (current_frame + 1) % frames_in_flight;
   }
