@@ -23,12 +23,6 @@ if(MSVC)
     add_compile_definitions(NOMINMAX)
 endif()
 
-add_custom_target(assets
-        COMMAND ${CMAKE_COMMAND} -E copy_directory
-        ${CMAKE_SOURCE_DIR}/data ${CMAKE_CURRENT_BINARY_DIR}/bin
-        )
-
-
 # Conan package manager
 if(NOT EXISTS "${CMAKE_BINARY_DIR}/conan.cmake")
     message(STATUS "Downloading conan.cmake from https://github.com/conan-io/cmake-conan")
@@ -37,7 +31,6 @@ if(NOT EXISTS "${CMAKE_BINARY_DIR}/conan.cmake")
 endif()
 
 include(${CMAKE_BINARY_DIR}/conan.cmake)
-
 
 conan_check(VERSION 1.4.0 REQUIRED)
 conan_add_remote(NAME bincrafters INDEX 1

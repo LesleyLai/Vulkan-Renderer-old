@@ -428,9 +428,9 @@ private:
   void create_graphics_pipeline()
   {
     auto vert_shader_module =
-        create_shader_module("shaders/vert.spv", *device_);
+        create_shader_module("shaders/shader.vert.spv", *device_);
     auto frag_shader_module =
-        create_shader_module("shaders/frag.spv", *device_);
+        create_shader_module("shaders/shader.frag.spv", *device_);
 
     vk::PipelineShaderStageCreateInfo vert_shader_stage_info;
     vert_shader_stage_info.setStage(vk::ShaderStageFlagBits::eVertex)
