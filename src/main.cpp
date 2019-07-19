@@ -1,11 +1,11 @@
 #include <vulkan/vulkan.hpp>
 
 #include <GLFW/glfw3.h>
+#include <fmt/format.h>
 
 #include <array>
 #include <cstdlib>
 #include <cstring>
-#include <iostream>
 #include <limits>
 #include <optional>
 #include <set>
@@ -120,7 +120,8 @@ static VKAPI_ATTR auto VKAPI_CALL vk_debug_callback(
     const VkDebugUtilsMessengerCallbackDataEXT* pCallbackData, void *
     /*pUserData*/) -> VkBool32
 {
-  std::cerr << "validation layer: " << pCallbackData->pMessage << std::endl;
+  fmt::print(stderr, "Validation layer: {}\n", pCallbackData->pMessage);
+  std::fflush(stderr);
   return VK_FALSE;
 }
 
@@ -137,10 +138,16 @@ public:
                                    framebuffer_resize_callback);
     glfwSetWindowUserPointer(platform_.window(), this);
 
-    setup_debug_messenger();
+    debug_messenger_ = setup_debug_messenger();
     surface_ = platform_.create_vulkan_surface(instance_.get(), dldy_);
     physical_device_ = pick_physical_device();
-    create_logical_device();
+    queue_family_indices_ = find_queue_families(physical_device_);
+    device_ = create_logical_device();
+    graphics_queue_ =
+        device_->getQueue(queue_family_indices_.graphics_family.value(), 0);
+    present_queue_ =
+        device_->getQueue(queue_family_indices_.present_family.value(), 0);
+
     create_swap_chain();
     create_image_views();
     create_render_pass();
@@ -177,6 +184,7 @@ private:
   vk::PhysicalDevice physical_device_;
   vk::UniqueDevice device_;
 
+  QueueFamilyIndices queue_family_indices_;
   vk::Queue graphics_queue_;
   vk::Queue present_queue_;
   vk::UniqueSwapchainKHR swapchain_;
@@ -231,10 +239,12 @@ private:
     return dldy;
   }
 
-  void setup_debug_messenger()
+  [[nodiscard]] auto setup_debug_messenger()
+      -> vk::UniqueHandle<vk::DebugUtilsMessengerEXT, vk::DispatchLoaderDynamic>
   {
-    if (!vk_enable_validation_layers) {
-      return;
+    if constexpr (!vk_enable_validation_layers) {
+      return vk::UniqueHandle<vk::DebugUtilsMessengerEXT,
+                              vk::DispatchLoaderDynamic>{};
     }
 
     vk::DebugUtilsMessengerCreateInfoEXT create_info;
@@ -247,8 +257,8 @@ private:
                         vk::DebugUtilsMessageTypeFlagBitsEXT::eValidation)
         .setPfnUserCallback(vk_debug_callback);
 
-    debug_messenger_ = instance_->createDebugUtilsMessengerEXTUnique(
-        create_info, nullptr, dldy_);
+    return instance_->createDebugUtilsMessengerEXTUnique(create_info, nullptr,
+                                                         dldy_);
   }
 
   [[nodiscard]] auto pick_physical_device() -> vk::PhysicalDevice
@@ -262,24 +272,28 @@ private:
       }
     }
 
-    std::cerr << "Cannot find suitable physical device for Vulkan\n";
+    std::fputs("Cannot find suitable physical device for Vulkan\n", stderr);
     return nullptr;
   }
 
-  void create_logical_device()
+  auto create_logical_device() -> vk::UniqueDevice
   {
-    QueueFamilyIndices indices = find_queue_families(physical_device_);
-
     std::vector<vk::DeviceQueueCreateInfo> queue_create_infos;
-    std::set<uint32_t> unique_queue_families = {indices.graphics_family.value(),
-                                                indices.present_family.value()};
+    std::set<uint32_t> unique_queue_families = {
+        queue_family_indices_.graphics_family.value(),
+        queue_family_indices_.present_family.value()};
 
-    float queue_priority = 1.0F;
+    const auto queue_family_properties =
+        physical_device_.getQueueFamilyProperties();
+
     for (std::uint32_t queue_family : unique_queue_families) {
+      const auto queue_count = queue_family_properties[queue_family].queueCount;
+      std::vector<float> queue_priorities(queue_count, 1.F);
+
       vk::DeviceQueueCreateInfo create_info;
       create_info.setQueueFamilyIndex(queue_family)
-          .setQueueCount(1)
-          .setPQueuePriorities(&queue_priority);
+          .setQueueCount(queue_count)
+          .setPQueuePriorities(queue_priorities.data());
       queue_create_infos.push_back(create_info);
     }
 
@@ -301,9 +315,7 @@ private:
       create_info.setEnabledLayerCount(0);
     }
 
-    device_ = physical_device_.createDeviceUnique(create_info);
-    graphics_queue_ = device_->getQueue(indices.graphics_family.value(), 0);
-    present_queue_ = device_->getQueue(indices.present_family.value(), 0);
+    return physical_device_.createDeviceUnique(create_info);
   }
 
   void create_swap_chain()
@@ -333,11 +345,12 @@ private:
         .setImageArrayLayers(1)
         .setImageUsage(vk::ImageUsageFlagBits::eColorAttachment);
 
-    const QueueFamilyIndices indices = find_queue_families(physical_device_);
-    std::array queue_family_indices = {indices.graphics_family.value(),
-                                       indices.present_family.value()};
+    std::array queue_family_indices = {
+        queue_family_indices_.graphics_family.value(),
+        queue_family_indices_.present_family.value()};
 
-    if (indices.graphics_family != indices.present_family) {
+    if (queue_family_indices_.graphics_family !=
+        queue_family_indices_.present_family) {
       create_info.setImageSharingMode(vk::SharingMode::eConcurrent)
           .setQueueFamilyIndexCount(
               static_cast<std::uint32_t>(queue_family_indices.size()))
@@ -783,7 +796,8 @@ private:
       }
 
       if (!layer_found) {
-        std::cerr << "Require Validation layer (" << layerName << ") no found";
+        fmt::print(stderr, "Required Validation layer ({}) not found",
+                   layerName);
         result = false;
       }
     }
@@ -799,12 +813,11 @@ static void framebuffer_resize_callback(GLFWwindow* window, int /*width*/,
   app->frame_buffer_resized = true;
 }
 
-int main()
-try {
+int main() try {
   Application app;
   app.exec();
 } catch (const std::exception& e) {
-  std::cerr << "Error: " << e.what() << '\n';
+  fmt::print(stderr, "Error: {}\n", e.what());
 } catch (...) {
-  std::cerr << "Unknown exception thrown!\n";
+  std::fputs("Unknown exception thrown!\n", stderr);
 }
