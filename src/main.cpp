@@ -286,14 +286,17 @@ private:
     const auto queue_family_properties =
         physical_device_.getQueueFamilyProperties();
 
+    std::vector<std::vector<float>> queues_priorities;
+
     for (std::uint32_t queue_family : unique_queue_families) {
       const auto queue_count = queue_family_properties[queue_family].queueCount;
-      std::vector<float> queue_priorities(queue_count, 1.F);
+
+      queues_priorities.push_back(std::vector<float>(queue_count, 1.F));
 
       vk::DeviceQueueCreateInfo create_info;
       create_info.setQueueFamilyIndex(queue_family)
           .setQueueCount(queue_count)
-          .setPQueuePriorities(queue_priorities.data());
+          .setPQueuePriorities(queues_priorities.back().data());
       queue_create_infos.push_back(create_info);
     }
 
