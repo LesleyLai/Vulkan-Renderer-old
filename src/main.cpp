@@ -3,6 +3,8 @@
 #include <GLFW/glfw3.h>
 #include <fmt/format.h>
 
+#include <glm/glm.hpp>
+
 #include <array>
 #include <cstdlib>
 #include <cstring>
@@ -26,6 +28,33 @@ constexpr bool vk_enable_validation_layers = true;
 constexpr std::array device_extensions = {VK_KHR_SWAPCHAIN_EXTENSION_NAME};
 
 constexpr std::size_t frames_in_flight = 2;
+
+struct Vertex {
+  glm::vec2 pos;
+  glm::vec3 color;
+
+  // Returns the vulkan binding description of a vertex
+  [[nodiscard]] static auto binding_description()
+      -> vk::VertexInputBindingDescription
+  {
+    return {0, sizeof(Vertex), vk::VertexInputRate::eVertex};
+  }
+
+  [[nodiscard]] static auto attributes_descriptions()
+      -> std::array<vk::VertexInputAttributeDescription, 2>
+  {
+    return {
+        vk::VertexInputAttributeDescription{0, 0, vk::Format::eR32G32Sfloat,
+                                            offsetof(Vertex, pos)},
+        vk::VertexInputAttributeDescription{1, 0, vk::Format::eR32G32B32Sfloat,
+                                            offsetof(Vertex, color)},
+    };
+  }
+};
+
+const std::vector<Vertex> vertices = {{{0.0f, -0.5f}, {1.0f, 0.0f, 0.0f}},
+                                      {{0.5f, 0.5f}, {0.0f, 1.0f, 0.0f}},
+                                      {{-0.5f, 0.5f}, {0.0f, 0.0f, 1.0f}}};
 
 struct SwapChainSupportDetails {
   vk::SurfaceCapabilitiesKHR capabilities;
@@ -154,6 +183,7 @@ public:
     create_graphics_pipeline();
     create_frame_buffers();
     create_command_pool();
+    create_vertex_buffer();
     create_command_buffers();
     create_sync_objects();
   }
@@ -207,6 +237,9 @@ private:
   std::array<vk::UniqueFence, 2> in_flight_fences;
   size_t current_frame = 0;
 
+  vk::UniqueBuffer vertex_buffer_;
+  vk::UniqueDeviceMemory vertex_buffer_memory_;
+
   [[nodiscard]] auto create_instance() -> vk::UniqueInstance
   {
     if (vk_enable_validation_layers) {
@@ -223,7 +256,8 @@ private:
         .setEnabledExtensionCount(static_cast<std::uint32_t>(extensions.size()))
         .setPpEnabledExtensionNames(extensions.data());
     if (vk_enable_validation_layers) {
-      create_info.setEnabledLayerCount(validation_layers.size())
+      create_info
+          .setEnabledLayerCount(static_cast<uint32_t>(validation_layers.size()))
           .setPpEnabledLayerNames(validation_layers.data());
     } else {
       create_info.setEnabledLayerCount(0);
@@ -312,7 +346,8 @@ private:
         .setPpEnabledExtensionNames(device_extensions.data());
 
     if (vk_enable_validation_layers) {
-      create_info.setEnabledLayerCount(validation_layers.size())
+      create_info
+          .setEnabledLayerCount(static_cast<uint32_t>(validation_layers.size()))
           .setPpEnabledLayerNames(validation_layers.data());
     } else {
       create_info.setEnabledLayerCount(0);
@@ -321,7 +356,7 @@ private:
     return physical_device_.createDeviceUnique(create_info);
   }
 
-  void create_swap_chain()
+  auto create_swap_chain() -> void
   {
     const auto swap_chain_support =
         query_swapchain_support(physical_device_, surface_.get());
@@ -375,7 +410,7 @@ private:
     swapchain_extent_ = extent;
   }
 
-  void create_image_views()
+  auto create_image_views() -> void
   {
     swapchain_image_views_.clear();
     swapchain_image_views_.reserve(swapchain_images_.size());
@@ -400,7 +435,7 @@ private:
     }
   }
 
-  void create_render_pass()
+  auto create_render_pass() -> void
   {
     vk::AttachmentDescription color_attachment;
     color_attachment.setFormat(swapchain_image_format_)
@@ -441,7 +476,7 @@ private:
     render_pass_ = device_->createRenderPassUnique(render_pass_create_info);
   }
 
-  void create_graphics_pipeline()
+  auto create_graphics_pipeline() -> void
   {
     auto vert_shader_module =
         create_shader_module("shaders/shader.vert.spv", *device_);
@@ -457,8 +492,15 @@ private:
         .setModule(*frag_shader_module)
         .setPName("main");
 
+    const auto binding_description = Vertex::binding_description();
+    const auto attribute_descriptions = Vertex::attributes_descriptions();
+
     const vk::PipelineVertexInputStateCreateInfo vertex_input_stage_create_info{
-        {}, 0, nullptr, 0, nullptr};
+        {},
+        1,
+        &binding_description,
+        static_cast<uint32_t>(attribute_descriptions.size()),
+        attribute_descriptions.data()};
 
     const vk::PipelineInputAssemblyStateCreateInfo input_assembly{
         {}, vk::PrimitiveTopology::eTriangleList, false};
@@ -535,7 +577,7 @@ private:
         device_->createGraphicsPipelineUnique(nullptr, pipeline_create_info);
   }
 
-  void create_frame_buffers()
+  auto create_frame_buffers() -> void
   {
     swapchain_framebuffers_.clear();
     swapchain_framebuffers_.reserve(swapchain_image_views_.size());
@@ -544,7 +586,7 @@ private:
 
       vk::FramebufferCreateInfo create_info;
       create_info.setRenderPass(*render_pass_)
-          .setAttachmentCount(attachments.size())
+          .setAttachmentCount(static_cast<uint32_t>(attachments.size()))
           .setPAttachments(attachments.data())
           .setWidth(swapchain_extent_.width)
           .setHeight(swapchain_extent_.height)
@@ -555,7 +597,7 @@ private:
     }
   }
 
-  void create_command_pool()
+  auto create_command_pool() -> void
   {
     const QueueFamilyIndices queue_family_indices =
         find_queue_families(physical_device_);
@@ -566,7 +608,50 @@ private:
     command_pool_ = device_->createCommandPoolUnique(create_info);
   }
 
-  void create_command_buffers()
+  auto find_memory_type(uint32_t type_filter,
+                        vk::MemoryPropertyFlags properties) -> std::uint32_t
+  {
+    const auto device_memory_properties =
+        physical_device_.getMemoryProperties();
+
+    for (uint32_t i = 0; i < device_memory_properties.memoryTypeCount; i++) {
+      if (type_filter & (1 << i) &&
+          (device_memory_properties.memoryTypes[i].propertyFlags &
+           properties) == properties) {
+        return i;
+      }
+    }
+
+    throw std::runtime_error("failed to find suitable memory type!");
+  }
+
+  auto create_vertex_buffer() -> void
+  {
+    const vk::BufferCreateInfo create_info{
+        {},
+        sizeof(vertices[0]) * vertices.size(),
+        vk::BufferUsageFlagBits::eVertexBuffer,
+        vk::SharingMode::eExclusive};
+    vertex_buffer_ = device_->createBufferUnique(create_info);
+
+    const auto memory_requirement =
+        device_->getBufferMemoryRequirements(*vertex_buffer_);
+
+    const vk::MemoryAllocateInfo alloc_info{
+        memory_requirement.size,
+        find_memory_type(memory_requirement.memoryTypeBits,
+                         vk::MemoryPropertyFlagBits::eHostVisible |
+                             vk::MemoryPropertyFlagBits::eHostCoherent)};
+    vertex_buffer_memory_ = device_->allocateMemoryUnique(alloc_info);
+    device_->bindBufferMemory(*vertex_buffer_, *vertex_buffer_memory_, 0);
+
+    void* data;
+    device_->mapMemory(*vertex_buffer_memory_, 0, create_info.size, {}, &data);
+    memcpy(data, vertices.data(), create_info.size);
+    device_->unmapMemory(*vertex_buffer_memory_);
+  }
+
+  auto create_command_buffers() -> void
   {
     const auto command_buffers_count = swapchain_framebuffers_.size();
 
@@ -602,7 +687,9 @@ private:
       command_buffer.bindPipeline(vk::PipelineBindPoint::eGraphics,
                                   *graphics_pipeline_);
 
-      command_buffer.draw(3, 1, 0, 0);
+      vk::DeviceSize offset{0};
+      command_buffer.bindVertexBuffers(0, 1, &vertex_buffer_.get(), &offset);
+      command_buffer.draw(static_cast<uint32_t>(vertices.size()), 1, 0, 0);
 
       command_buffer.endRenderPass();
 
@@ -610,7 +697,7 @@ private:
     }
   }
 
-  void create_sync_objects()
+  auto create_sync_objects() -> void
   {
     vk::SemaphoreCreateInfo semaphore_create_info;
     vk::FenceCreateInfo fence_create_info{vk::FenceCreateFlagBits::eSignaled};
@@ -623,7 +710,7 @@ private:
     }
   }
 
-  void recreate_swapchain()
+  auto recreate_swapchain() -> void
   {
     frame_buffer_resized = false;
 
@@ -645,7 +732,7 @@ private:
     create_command_buffers();
   }
 
-  void render()
+  auto render() -> void
   {
     device_->waitForFences(1, &(*in_flight_fences[current_frame]), true,
                            std::numeric_limits<uint64_t>::max());
