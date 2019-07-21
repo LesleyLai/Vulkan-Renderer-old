@@ -625,30 +625,48 @@ private:
     throw std::runtime_error("failed to find suitable memory type!");
   }
 
+  auto copy_buffer(vk::Buffer src, vk::Buffer dst, vk::DeviceSize size) -> void
+  {
+    const vk::CommandBufferAllocateInfo alloc_info{
+        *command_pool_, vk::CommandBufferLevel::ePrimary, 1};
+
+    const auto command_buffers =
+        device_->allocateCommandBuffersUnique(alloc_info);
+    const auto& command_buffer = command_buffers[0].get();
+
+    const vk::CommandBufferBeginInfo begin_info{
+        vk::CommandBufferUsageFlagBits::eOneTimeSubmit};
+    command_buffer.begin(begin_info);
+    vk::BufferCopy copy_region{0, 0, size};
+    command_buffer.copyBuffer(src, dst, 1, &copy_region);
+    command_buffer.end();
+
+    vk::SubmitInfo submit_info;
+    submit_info.setCommandBufferCount(1).setPCommandBuffers(&command_buffer);
+    graphics_queue_.submit(1, &submit_info, vk::Fence{});
+    graphics_queue_.waitIdle();
+  }
+
   auto create_vertex_buffer() -> void
   {
-    const vk::BufferCreateInfo create_info{
-        {},
-        sizeof(vertices[0]) * vertices.size(),
-        vk::BufferUsageFlagBits::eVertexBuffer,
-        vk::SharingMode::eExclusive};
-    vertex_buffer_ = device_->createBufferUnique(create_info);
-
-    const auto memory_requirement =
-        device_->getBufferMemoryRequirements(*vertex_buffer_);
-
-    const vk::MemoryAllocateInfo alloc_info{
-        memory_requirement.size,
-        find_memory_type(memory_requirement.memoryTypeBits,
-                         vk::MemoryPropertyFlagBits::eHostVisible |
-                             vk::MemoryPropertyFlagBits::eHostCoherent)};
-    vertex_buffer_memory_ = device_->allocateMemoryUnique(alloc_info);
-    device_->bindBufferMemory(*vertex_buffer_, *vertex_buffer_memory_, 0);
+    const auto size = sizeof(vertices[0]) * vertices.size();
+    const auto [staging_buffer, staging_buffer_memory] =
+        create_buffer(*device_, size, vk::BufferUsageFlagBits::eTransferSrc,
+                      vk::MemoryPropertyFlagBits::eHostVisible |
+                          vk::MemoryPropertyFlagBits::eHostCoherent);
 
     void* data;
-    device_->mapMemory(*vertex_buffer_memory_, 0, create_info.size, {}, &data);
-    memcpy(data, vertices.data(), create_info.size);
-    device_->unmapMemory(*vertex_buffer_memory_);
+    device_->mapMemory(*staging_buffer_memory, 0, size, {}, &data);
+    memcpy(data, vertices.data(), size);
+    device_->unmapMemory(*staging_buffer_memory);
+
+    std::tie(vertex_buffer_, vertex_buffer_memory_) =
+        create_buffer(*device_, size,
+                      vk::BufferUsageFlagBits::eTransferDst |
+                          vk::BufferUsageFlagBits::eVertexBuffer,
+                      vk::MemoryPropertyFlagBits::eDeviceLocal);
+
+    copy_buffer(*staging_buffer, *vertex_buffer_, size);
   }
 
   auto create_command_buffers() -> void
@@ -893,6 +911,26 @@ private:
     }
 
     return result;
+  }
+
+  [[nodiscard]] auto
+  create_buffer(const vk::Device& device, vk::DeviceSize size,
+                vk::BufferUsageFlags usages, vk::MemoryPropertyFlags properties)
+      -> std::tuple<vk::UniqueBuffer, vk::UniqueDeviceMemory>
+  {
+    const vk::BufferCreateInfo create_info{
+        {}, size, usages, vk::SharingMode::eExclusive};
+
+    auto buffer = device.createBufferUnique(create_info);
+
+    const auto memory_requirement = device.getBufferMemoryRequirements(*buffer);
+
+    const vk::MemoryAllocateInfo alloc_info{
+        memory_requirement.size,
+        find_memory_type(memory_requirement.memoryTypeBits, properties)};
+    auto buffer_memory = device.allocateMemoryUnique(alloc_info);
+    device.bindBufferMemory(*buffer, *buffer_memory, 0);
+    return {std::move(buffer), std::move(buffer_memory)};
   }
 };
 
