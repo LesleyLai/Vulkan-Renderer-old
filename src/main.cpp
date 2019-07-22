@@ -3,9 +3,12 @@
 #include <GLFW/glfw3.h>
 #include <fmt/format.h>
 
+#define GLM_FORCE_RADIANS
 #include <glm/glm.hpp>
+#include <glm/gtc/matrix_transform.hpp>
 
 #include <array>
+#include <chrono>
 #include <cstdlib>
 #include <cstring>
 #include <limits>
@@ -59,6 +62,12 @@ const std::array<Vertex, 4> vertices = {
     Vertex{{-0.5f, 0.5f}, {1.0f, 1.0f, 1.0f}}};
 
 const std::array<uint16_t, 6> indices{0, 1, 2, 2, 3, 0};
+
+struct UniformBufferObject {
+  glm::mat4 model;
+  glm::mat4 view;
+  glm::mat4 proj;
+};
 
 struct SwapChainSupportDetails {
   vk::SurfaceCapabilitiesKHR capabilities;
@@ -184,11 +193,13 @@ public:
     create_swap_chain();
     create_image_views();
     create_render_pass();
+    create_descriptor_set_layout();
     create_graphics_pipeline();
     create_frame_buffers();
     create_command_pool();
     create_vertex_buffer();
     create_index_buffer();
+    create_uniform_buffers();
     create_command_buffers();
     create_sync_objects();
   }
@@ -229,6 +240,7 @@ private:
   std::vector<vk::UniqueImageView> swapchain_image_views_;
 
   vk::UniqueRenderPass render_pass_;
+  vk::UniqueDescriptorSetLayout descriptor_set_layout_;
   vk::UniquePipelineLayout pipeline_layout_;
   vk::UniquePipeline graphics_pipeline_;
 
@@ -247,6 +259,9 @@ private:
 
   vk::UniqueBuffer index_buffer_;
   vk::UniqueDeviceMemory index_buffer_memory_;
+
+  std::vector<vk::UniqueBuffer> uniform_buffers_;
+  std::vector<vk::UniqueDeviceMemory> uniform_buffers_memory_;
 
   [[nodiscard]] auto create_instance() -> vk::UniqueInstance
   {
@@ -484,6 +499,19 @@ private:
     render_pass_ = device_->createRenderPassUnique(render_pass_create_info);
   }
 
+  auto create_descriptor_set_layout() -> void
+  {
+    const vk::DescriptorSetLayoutBinding ubo_layout_binding{
+        0, vk::DescriptorType::eUniformBuffer, 1,
+        vk::ShaderStageFlagBits::eVertex, nullptr};
+
+    const vk::DescriptorSetLayoutCreateInfo create_info{
+        {}, 1, &ubo_layout_binding};
+
+    descriptor_set_layout_ =
+        device_->createDescriptorSetLayoutUnique(create_info);
+  }
+
   auto create_graphics_pipeline() -> void
   {
     auto vert_shader_module =
@@ -558,8 +586,9 @@ private:
         .setBlendConstants({0, 0, 0, 0});
 
     vk::PipelineLayoutCreateInfo pipeline_layout_create_info;
-    pipeline_layout_create_info.setSetLayoutCount(0).setPushConstantRangeCount(
-        0);
+    pipeline_layout_create_info.setSetLayoutCount(1)
+        .setPSetLayouts(&descriptor_set_layout_.get())
+        .setPushConstantRangeCount(0);
 
     pipeline_layout_ =
         device_->createPipelineLayoutUnique(pipeline_layout_create_info);
@@ -699,6 +728,22 @@ private:
     copy_buffer(*staging_buffer, *index_buffer_, size);
   }
 
+  auto create_uniform_buffers() -> void
+  {
+    vk::DeviceSize buffer_size = sizeof(UniformBufferObject);
+
+    const auto images_count = swapchain_images_.size();
+    uniform_buffers_.resize(images_count);
+    uniform_buffers_memory_.resize(images_count);
+
+    for (std::size_t i = 0; i < images_count; ++i) {
+      std::tie(uniform_buffers_[i], uniform_buffers_memory_[i]) = create_buffer(
+          *device_, buffer_size, vk::BufferUsageFlagBits::eUniformBuffer,
+          vk::MemoryPropertyFlagBits::eHostVisible |
+              vk::MemoryPropertyFlagBits::eHostCoherent);
+    }
+  }
+
   auto create_command_buffers() -> void
   {
     const auto command_buffers_count = swapchain_framebuffers_.size();
@@ -739,7 +784,7 @@ private:
       command_buffer.bindVertexBuffers(0, 1, &vertex_buffer_.get(), &offset);
       command_buffer.bindIndexBuffer(*index_buffer_, 0, vk::IndexType::eUint16);
 
-	  command_buffer.drawIndexed(static_cast<uint32_t>(indices.size()), 1, 0, 0,
+      command_buffer.drawIndexed(static_cast<uint32_t>(indices.size()), 1, 0, 0,
                                  0);
 
       command_buffer.endRenderPass();
@@ -780,7 +825,31 @@ private:
     create_render_pass();
     create_graphics_pipeline();
     create_frame_buffers();
+    create_uniform_buffers();
     create_command_buffers();
+  }
+
+  auto update_uniform_buffer(std::uint32_t current_image) -> void {
+    static auto start_time = std::chrono::high_resolution_clock::now();
+    const auto current_time = std::chrono::high_resolution_clock::now();
+    float time = std::chrono::duration<float, std::chrono::seconds::period>(
+                     current_time - start_time)
+                     .count();
+
+    UniformBufferObject ubo = {};
+    ubo.model = glm::rotate(glm::mat4(1.0f), time * glm::radians(90.0f),
+                            glm::vec3(0.0f, 0.0f, 1.0f));
+    ubo.view =
+        glm::lookAt(glm::vec3(2.0f, 2.0f, 2.0f), glm::vec3(0.0f, 0.0f, 0.0f),
+                    glm::vec3(0.0f, 0.0f, 1.0f));
+    ubo.proj = glm::perspective(
+        glm::radians(45.0f),
+        swapchain_extent_.width / (float)swapchain_extent_.height, 0.1f, 10.0f);
+    ubo.proj[1][1] *= -1;
+
+    void* data = device_->mapMemory(*uniform_buffers_memory_[current_image], 0, sizeof(ubo));
+    memcpy(data, &ubo, sizeof(ubo));
+    device_->unmapMemory(*uniform_buffers_memory_[current_image]);
   }
 
   auto render() -> void
@@ -788,7 +857,7 @@ private:
     device_->waitForFences(1, &(*in_flight_fences[current_frame]), true,
                            std::numeric_limits<uint64_t>::max());
 
-    auto [result, image_index] = device_->acquireNextImageKHR(
+    const auto [result, image_index] = device_->acquireNextImageKHR(
         *swapchain_, std::numeric_limits<uint64_t>::max(),
         *image_available_semaphores[current_frame], nullptr);
 
@@ -798,6 +867,8 @@ private:
       return;
     }
     assert(result == vk::Result::eSuccess);
+
+    update_uniform_buffer(image_index);
 
     vk::SubmitInfo submit_info;
     const std::array wait_semaphores = {
@@ -834,10 +905,12 @@ private:
         .setPSwapchains(swap_chains.data())
         .setPImageIndices(&image_index);
 
-    result = present_queue_.presentKHR(&present_info);
-    if (result == vk::Result::eErrorOutOfDateKHR ||
-        result == vk::Result::eSuboptimalKHR || frame_buffer_resized) {
-      recreate_swapchain();
+    {
+      const auto result = present_queue_.presentKHR(&present_info);
+      if (result == vk::Result::eErrorOutOfDateKHR ||
+          result == vk::Result::eSuboptimalKHR || frame_buffer_resized) {
+        recreate_swapchain();
+      }
     }
 
     current_frame = (current_frame + 1) % frames_in_flight;
