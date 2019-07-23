@@ -200,6 +200,8 @@ public:
     create_vertex_buffer();
     create_index_buffer();
     create_uniform_buffers();
+    create_descriptor_pool();
+    create_descriptor_sets();
     create_command_buffers();
     create_sync_objects();
   }
@@ -245,6 +247,9 @@ private:
   vk::UniquePipeline graphics_pipeline_;
 
   std::vector<vk::UniqueFramebuffer> swapchain_framebuffers_;
+
+  vk::UniqueDescriptorPool descriptor_pool_;
+  std::vector<vk::DescriptorSet> descriptor_sets_;
 
   vk::UniqueCommandPool command_pool_;
   std::vector<vk::CommandBuffer> command_buffers_;
@@ -728,6 +733,42 @@ private:
     copy_buffer(*staging_buffer, *index_buffer_, size);
   }
 
+  auto create_descriptor_pool() -> void
+  {
+    const vk::DescriptorPoolSize pool_size{
+        vk::DescriptorType::eUniformBuffer,
+        static_cast<uint32_t>(swapchain_images_.size())};
+    const vk::DescriptorPoolCreateInfo create_info{
+        {}, static_cast<uint32_t>(swapchain_images_.size()), 1, &pool_size};
+
+    descriptor_pool_ = device_->createDescriptorPoolUnique(create_info);
+  }
+
+  auto create_descriptor_sets() -> void {
+    std::vector<vk::DescriptorSetLayout> layouts(swapchain_images_.size(),
+                                                 *descriptor_set_layout_);
+
+    vk::DescriptorSetAllocateInfo alloc_info{
+        *descriptor_pool_, static_cast<uint32_t>(layouts.size()), layouts.data()};
+
+    descriptor_sets_ = device_->allocateDescriptorSets(alloc_info);
+
+    for (std::size_t i = 0; i < descriptor_sets_.size(); ++i) {
+      const vk::DescriptorBufferInfo buffer_info{*uniform_buffers_[i], 0, VK_WHOLE_SIZE};
+
+      const vk::WriteDescriptorSet write{descriptor_sets_[i],
+                                         0,
+                                         0,
+                                         1,
+                                         vk::DescriptorType::eUniformBuffer,
+                                         nullptr,
+                                         &buffer_info,
+                                         nullptr};
+
+      device_->updateDescriptorSets(1, &write, 0, nullptr);
+    }
+  }
+
   auto create_uniform_buffers() -> void
   {
     vk::DeviceSize buffer_size = sizeof(UniformBufferObject);
@@ -784,6 +825,9 @@ private:
       command_buffer.bindVertexBuffers(0, 1, &vertex_buffer_.get(), &offset);
       command_buffer.bindIndexBuffer(*index_buffer_, 0, vk::IndexType::eUint16);
 
+      command_buffer.bindDescriptorSets(vk::PipelineBindPoint::eGraphics,
+                                        *pipeline_layout_, 0, 1,
+                                        &descriptor_sets_[i], 0, nullptr);
       command_buffer.drawIndexed(static_cast<uint32_t>(indices.size()), 1, 0, 0,
                                  0);
 
@@ -826,10 +870,13 @@ private:
     create_graphics_pipeline();
     create_frame_buffers();
     create_uniform_buffers();
+    create_descriptor_pool();
+    create_descriptor_sets();
     create_command_buffers();
   }
 
-  auto update_uniform_buffer(std::uint32_t current_image) -> void {
+  auto update_uniform_buffer(std::uint32_t current_image) -> void
+  {
     static auto start_time = std::chrono::high_resolution_clock::now();
     const auto current_time = std::chrono::high_resolution_clock::now();
     float time = std::chrono::duration<float, std::chrono::seconds::period>(
@@ -845,9 +892,10 @@ private:
     ubo.proj = glm::perspective(
         glm::radians(45.0f),
         swapchain_extent_.width / (float)swapchain_extent_.height, 0.1f, 10.0f);
-    ubo.proj[1][1] *= -1;
+    //ubo.proj[1][1] *= -1;
 
-    void* data = device_->mapMemory(*uniform_buffers_memory_[current_image], 0, sizeof(ubo));
+    void* data = device_->mapMemory(*uniform_buffers_memory_[current_image], 0,
+                                    sizeof(ubo));
     memcpy(data, &ubo, sizeof(ubo));
     device_->unmapMemory(*uniform_buffers_memory_[current_image]);
   }
