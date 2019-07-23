@@ -64,9 +64,9 @@ const std::array<Vertex, 4> vertices = {
 const std::array<uint16_t, 6> indices{0, 1, 2, 2, 3, 0};
 
 struct UniformBufferObject {
-  glm::mat4 model;
-  glm::mat4 view;
-  glm::mat4 proj;
+  alignas(16) glm::mat4 model;
+  alignas(16) glm::mat4 view;
+  alignas(16) glm::mat4 proj;
 };
 
 struct SwapChainSupportDetails {
