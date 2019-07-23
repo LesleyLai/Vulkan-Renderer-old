@@ -6,7 +6,7 @@ Platform::Platform()
 {
   glfwInit();
   glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
-  window_ = glfwCreateWindow(1440, 900, "Vulkan", nullptr, nullptr);
+  window_ = glfwCreateWindow(1440, 900, "Vulkan Renderer", nullptr, nullptr);
 }
 
 Platform::~Platform()
