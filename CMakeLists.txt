@@ -23,6 +23,8 @@ if(MSVC)
     add_compile_definitions(NOMINMAX)
 endif()
 
+add_compile_definitions(GLM_FORCE_RADIANS)
+
 # Conan package manager
 if(NOT EXISTS "${CMAKE_BINARY_DIR}/conan.cmake")
     message(STATUS "Downloading conan.cmake from https://github.com/conan-io/cmake-conan")
