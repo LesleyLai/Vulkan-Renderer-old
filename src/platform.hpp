@@ -14,7 +14,7 @@ struct Resolution {
 
 class Platform {
 public:
-  Platform();
+  Platform(int width, int height, std::string_view title);
   ~Platform();
 
   Platform(const Platform&) = delete;

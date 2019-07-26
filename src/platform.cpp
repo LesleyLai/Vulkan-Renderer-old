@@ -2,11 +2,11 @@
 
 #include <GLFW/glfw3.h>
 
-Platform::Platform()
+Platform::Platform(int width, int height, std::string_view title)
 {
   glfwInit();
   glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
-  window_ = glfwCreateWindow(1440, 900, "Vulkan Renderer", nullptr, nullptr);
+  window_ = glfwCreateWindow(width, height, title.data(), nullptr, nullptr);
 }
 
 Platform::~Platform()

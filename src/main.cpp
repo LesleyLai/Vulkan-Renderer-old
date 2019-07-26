@@ -176,7 +176,9 @@ class Application {
 public:
   bool frame_buffer_resized = false;
 
-  Application() : instance_{create_instance()}, dldy_{create_dynamic_loader()}
+  Application()
+      : platform_{1440, 900, "Vulkan Renderer"}, instance_{create_instance()},
+        dldy_{create_dynamic_loader()}
   {
     glfwSetFramebufferSizeCallback(platform_.window(),
                                    framebuffer_resize_callback);
