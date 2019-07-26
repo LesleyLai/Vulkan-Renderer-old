@@ -38,7 +38,8 @@ void Platform::poll_events() noexcept
 
 [[nodiscard]] auto Platform::get_resolution() const noexcept -> Resolution
 {
-  int width, height;
+  int width;
+  int height;
   glfwGetWindowSize(window_, &width, &height);
   return Resolution{width, height};
 }

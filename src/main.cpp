@@ -58,10 +58,10 @@ struct Vertex {
 };
 
 const std::array<Vertex, 4> vertices = {
-    Vertex{{-0.5f, -0.5f}, {1.0f, 0.0f, 0.0f}},
-    Vertex{{0.5f, -0.5f}, {0.0f, 1.0f, 0.0f}},
-    Vertex{{0.5f, 0.5f}, {0.0f, 0.0f, 1.0f}},
-    Vertex{{-0.5f, 0.5f}, {1.0f, 1.0f, 1.0f}}};
+    Vertex{{-0.5F, -0.5F}, {1.0F, 0.0F, 0.0F}},
+    Vertex{{0.5f, -0.5F}, {0.0F, 1.0F, 0.0F}},
+    Vertex{{0.5F, 0.5F}, {0.0F, 0.0F, 1.0F}},
+    Vertex{{-0.5F, 0.5F}, {1.0F, 1.0F, 1.0F}}};
 
 const std::array<uint16_t, 6> indices{0, 1, 2, 2, 3, 0};
 
@@ -355,7 +355,7 @@ private:
     for (std::uint32_t queue_family : unique_queue_families) {
       const auto queue_count = queue_family_properties[queue_family].queueCount;
 
-      queues_priorities.push_back(std::vector<float>(queue_count, 1.F));
+      queues_priorities.emplace_back(queue_count, 1.F);
 
       vk::DeviceQueueCreateInfo create_info;
       create_info.setQueueFamilyIndex(queue_family)
@@ -653,7 +653,8 @@ private:
   }
 
   auto find_memory_type(uint32_t type_filter,
-                        vk::MemoryPropertyFlags properties) -> std::uint32_t
+                        const vk::MemoryPropertyFlags& properties)
+      -> std::uint32_t
   {
     const auto device_memory_properties =
         physical_device_.getMemoryProperties();
@@ -746,17 +747,20 @@ private:
     descriptor_pool_ = device_->createDescriptorPoolUnique(create_info);
   }
 
-  auto create_descriptor_sets() -> void {
+  auto create_descriptor_sets() -> void
+  {
     std::vector<vk::DescriptorSetLayout> layouts(swapchain_images_.size(),
                                                  *descriptor_set_layout_);
 
     vk::DescriptorSetAllocateInfo alloc_info{
-        *descriptor_pool_, static_cast<uint32_t>(layouts.size()), layouts.data()};
+        *descriptor_pool_, static_cast<uint32_t>(layouts.size()),
+        layouts.data()};
 
     descriptor_sets_ = device_->allocateDescriptorSets(alloc_info);
 
     for (std::size_t i = 0; i < descriptor_sets_.size(); ++i) {
-      const vk::DescriptorBufferInfo buffer_info{*uniform_buffers_[i], 0, VK_WHOLE_SIZE};
+      const vk::DescriptorBufferInfo buffer_info{*uniform_buffers_[i], 0,
+                                                 VK_WHOLE_SIZE};
 
       const vk::WriteDescriptorSet write{descriptor_sets_[i],
                                          0,
@@ -813,7 +817,7 @@ private:
           .setRenderArea(vk::Rect2D{{0, 0}, swapchain_extent_});
 
       vk::ClearValue clear_color{
-          vk::ClearColorValue(std::array{0.f, 0.f, 0.f, 1.f})};
+          vk::ClearColorValue(std::array{0.F, 0.F, 0.F, 1.F})};
       render_pass_begin_info.setClearValueCount(1).setPClearValues(
           &clear_color);
 
@@ -841,8 +845,9 @@ private:
 
   auto create_sync_objects() -> void
   {
-    vk::SemaphoreCreateInfo semaphore_create_info;
-    vk::FenceCreateInfo fence_create_info{vk::FenceCreateFlagBits::eSignaled};
+    const vk::SemaphoreCreateInfo semaphore_create_info;
+    const vk::FenceCreateInfo fence_create_info{
+        vk::FenceCreateFlagBits::eSignaled};
     for (size_t i = 0; i < frames_in_flight; ++i) {
       image_available_semaphores[i] =
           device_->createSemaphoreUnique(semaphore_create_info);
@@ -886,15 +891,16 @@ private:
                      .count();
 
     UniformBufferObject ubo = {};
-    ubo.model = glm::rotate(glm::mat4(1.0f), time * glm::radians(90.0f),
-                            glm::vec3(0.0f, 0.0f, 1.0f));
+    ubo.model = glm::rotate(glm::mat4(1.0F), time * glm::radians(90.0F),
+                            glm::vec3(0.0F, 0.0F, 1.0F));
     ubo.view =
-        glm::lookAt(glm::vec3(2.0f, 2.0f, 2.0f), glm::vec3(0.0f, 0.0f, 0.0f),
-                    glm::vec3(0.0f, 0.0f, 1.0f));
+        glm::lookAt(glm::vec3(2.0F, 2.0F, 2.0F), glm::vec3(0.0F, 0.0F, 0.0F),
+                    glm::vec3(0.0F, 0.0F, 1.0F));
     ubo.proj = glm::perspective(
-        glm::radians(45.0f),
-        swapchain_extent_.width / (float)swapchain_extent_.height, 0.1f, 10.0f);
-    //ubo.proj[1][1] *= -1;
+        glm::radians(45.0F),
+        swapchain_extent_.width / static_cast<float>(swapchain_extent_.height),
+        0.1F, 10.0F);
+    // ubo.proj[1][1] *= -1;
 
     void* data = device_->mapMemory(*uniform_buffers_memory_[current_image], 0,
                                     sizeof(ubo));
@@ -956,9 +962,9 @@ private:
         .setPImageIndices(&image_index);
 
     {
-      const auto result = present_queue_.presentKHR(&present_info);
-      if (result == vk::Result::eErrorOutOfDateKHR ||
-          result == vk::Result::eSuboptimalKHR || frame_buffer_resized) {
+      const auto result2 = present_queue_.presentKHR(&present_info);
+      if (result2 == vk::Result::eErrorOutOfDateKHR ||
+          result2 == vk::Result::eSuboptimalKHR || frame_buffer_resized) {
         recreate_swapchain();
       }
     }
@@ -1069,25 +1075,11 @@ private:
     return result;
   }
 
-  [[nodiscard]] auto
-  create_buffer(const vk::Device& device, vk::DeviceSize size,
-                vk::BufferUsageFlags usages, vk::MemoryPropertyFlags properties)
-      -> std::tuple<vk::UniqueBuffer, vk::UniqueDeviceMemory>
-  {
-    const vk::BufferCreateInfo create_info{
-        {}, size, usages, vk::SharingMode::eExclusive};
-
-    auto buffer = device.createBufferUnique(create_info);
-
-    const auto memory_requirement = device.getBufferMemoryRequirements(*buffer);
-
-    const vk::MemoryAllocateInfo alloc_info{
-        memory_requirement.size,
-        find_memory_type(memory_requirement.memoryTypeBits, properties)};
-    auto buffer_memory = device.allocateMemoryUnique(alloc_info);
-    device.bindBufferMemory(*buffer, *buffer_memory, 0);
-    return {std::move(buffer), std::move(buffer_memory)};
-  }
+  [[nodiscard]] auto create_buffer(const vk::Device& device,
+                                   vk::DeviceSize size,
+                                   const vk::BufferUsageFlags& usages,
+                                   const vk::MemoryPropertyFlags& properties)
+      -> std::tuple<vk::UniqueBuffer, vk::UniqueDeviceMemory>;
 };
 
 static void framebuffer_resize_callback(GLFWwindow* window, int /*width*/,
@@ -1097,11 +1089,32 @@ static void framebuffer_resize_callback(GLFWwindow* window, int /*width*/,
   app->frame_buffer_resized = true;
 }
 
-int main() try {
+int main()
+try {
   Application app;
   app.exec();
 } catch (const std::exception& e) {
   fmt::print(stderr, "Error: {}\n", e.what());
 } catch (...) {
   std::fputs("Unknown exception thrown!\n", stderr);
+}
+
+std::tuple<vk::UniqueBuffer, vk::UniqueDeviceMemory>
+Application::create_buffer(const vk::Device& device, vk::DeviceSize size,
+                           const vk::BufferUsageFlags& usages,
+                           const vk::MemoryPropertyFlags& properties)
+{
+  const vk::BufferCreateInfo create_info{
+      {}, size, usages, vk::SharingMode::eExclusive};
+
+  auto buffer = device.createBufferUnique(create_info);
+
+  const auto memory_requirement = device.getBufferMemoryRequirements(*buffer);
+
+  const vk::MemoryAllocateInfo alloc_info{
+      memory_requirement.size,
+      find_memory_type(memory_requirement.memoryTypeBits, properties)};
+  auto buffer_memory = device.allocateMemoryUnique(alloc_info);
+  device.bindBufferMemory(*buffer, *buffer_memory, 0);
+  return {std::move(buffer), std::move(buffer_memory)};
 }
