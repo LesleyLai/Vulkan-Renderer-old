@@ -12,16 +12,25 @@ target_link_libraries(VulkanRenderer
 set_target_properties(VulkanRenderer PROPERTIES RUNTIME_OUTPUT_DIRECTORY
     "${CMAKE_BINARY_DIR}/bin")
 
-
+# Shaders
 include(CompileShader)
 compile_shader(vertShader
-   SOURCE ${CMAKE_SOURCE_DIR}/data/shaders/shader.vert
+   SOURCE ${CMAKE_SOURCE_DIR}/shaders/shader.vert
    TARGET ${CMAKE_BINARY_DIR}/bin/shaders/shader.vert.spv
 )
+
 compile_shader(fragShader
-   SOURCE ${CMAKE_SOURCE_DIR}/data/shaders/shader.frag
+   SOURCE ${CMAKE_SOURCE_DIR}/shaders/shader.frag
    TARGET ${CMAKE_BINARY_DIR}/bin/shaders/shader.frag.spv
 )
 
 add_dependencies(VulkanRenderer vertShader)
 add_dependencies(VulkanRenderer fragShader)
+
+# Copy assets
+add_custom_target(assets
+        COMMAND ${CMAKE_COMMAND} -E copy_directory
+        ${CMAKE_SOURCE_DIR}/data ${CMAKE_BINARY_DIR}/bin
+        )
+
+add_dependencies(VulkanRenderer assets)

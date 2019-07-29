@@ -201,6 +201,7 @@ public:
     create_graphics_pipeline();
     create_frame_buffers();
     create_command_pool();
+    create_texture_image();
     create_vertex_buffer();
     create_index_buffer();
     create_uniform_buffers();
@@ -694,6 +695,20 @@ private:
     graphics_queue_.waitIdle();
   }
 
+  auto create_texture_image() -> void
+  {
+    int tex_width, tex_height, tex_channels;
+    const stbi_uc* pixels =
+        stbi_load("textures/texture.jpg", &tex_width, &tex_height,
+                  &tex_channels, STBI_rgb_alpha);
+    const auto image_size =
+        static_cast<vk::DeviceSize>(tex_width * tex_height * 4);
+
+    if (!pixels) {
+      throw std::runtime_error("failed to load texture image!");
+    }
+  }
+
   auto create_vertex_buffer() -> void
   {
     const auto size = sizeof(vertices[0]) * vertices.size();
@@ -1091,8 +1106,7 @@ static void framebuffer_resize_callback(GLFWwindow* window, int /*width*/,
   app->frame_buffer_resized = true;
 }
 
-int main()
-try {
+int main() try {
   Application app;
   app.exec();
 } catch (const std::exception& e) {
