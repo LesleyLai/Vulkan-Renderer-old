@@ -24,6 +24,10 @@ compile_shader(fragShader
    TARGET ${CMAKE_BINARY_DIR}/bin/shaders/shader.frag.spv
 )
 
+target_compile_definitions(VulkanRenderer PUBLIC
+    GLM_FORCE_RADIANS GLM_FORCE_DEPTH_ZERO_TO_ONE)
+
+
 add_dependencies(VulkanRenderer vertShader)
 add_dependencies(VulkanRenderer fragShader)
 
