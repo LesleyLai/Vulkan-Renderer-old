@@ -37,6 +37,7 @@ constexpr std::size_t frames_in_flight = 2;
 struct Vertex {
   glm::vec2 pos;
   glm::vec3 color;
+  glm::vec2 texCoord;
 
   // Returns the vulkan binding description of a vertex
   [[nodiscard]] static auto binding_description()
@@ -46,22 +47,24 @@ struct Vertex {
   }
 
   [[nodiscard]] static auto attributes_descriptions()
-      -> std::array<vk::VertexInputAttributeDescription, 2>
+      -> std::array<vk::VertexInputAttributeDescription, 3>
   {
     return {
         vk::VertexInputAttributeDescription{0, 0, vk::Format::eR32G32Sfloat,
                                             offsetof(Vertex, pos)},
         vk::VertexInputAttributeDescription{1, 0, vk::Format::eR32G32B32Sfloat,
                                             offsetof(Vertex, color)},
+        vk::VertexInputAttributeDescription{2, 0, vk::Format::eR32G32Sfloat,
+                                            offsetof(Vertex, texCoord)},
     };
   }
 };
 
-const std::array<Vertex, 4> vertices = {
-    Vertex{{-0.5F, -0.5F}, {1.0F, 0.0F, 0.0F}},
-    Vertex{{0.5f, -0.5F}, {0.0F, 1.0F, 0.0F}},
-    Vertex{{0.5F, 0.5F}, {0.0F, 0.0F, 1.0F}},
-    Vertex{{-0.5F, 0.5F}, {1.0F, 1.0F, 1.0F}}};
+const std::array vertices = {
+    Vertex{{-0.5F, -0.5F}, {1.0F, 0.0F, 0.0F}, {1.0f, 0.0f}},
+    Vertex{{0.5f, -0.5F}, {0.0F, 1.0F, 0.0F}, {0.0f, 0.0f}},
+    Vertex{{0.5F, 0.5F}, {0.0F, 0.0F, 1.0F}, {0.0f, 1.0f}},
+    Vertex{{-0.5F, 0.5F}, {1.0F, 1.0F, 1.0F}, {1.0f, 1.0f}}};
 
 const std::array<uint16_t, 6> indices{0, 1, 2, 2, 3, 0};
 
@@ -509,8 +512,14 @@ private:
         0, vk::DescriptorType::eUniformBuffer, 1,
         vk::ShaderStageFlagBits::eVertex, nullptr};
 
+    const vk::DescriptorSetLayoutBinding sampler_layout_binding{
+        1, vk::DescriptorType::eCombinedImageSampler, 1,
+        vk::ShaderStageFlagBits::eFragment, nullptr};
+
+    std::array bindings = {ubo_layout_binding, sampler_layout_binding};
+
     const vk::DescriptorSetLayoutCreateInfo create_info{
-        {}, 1, &ubo_layout_binding};
+        {}, static_cast<std::uint32_t>(bindings.size()), bindings.data()};
 
     descriptor_set_layout_ =
         device_->createDescriptorSetLayoutUnique(create_info);
@@ -856,11 +865,19 @@ private:
 
   auto create_descriptor_pool() -> void
   {
-    const vk::DescriptorPoolSize pool_size{
-        vk::DescriptorType::eUniformBuffer,
-        static_cast<uint32_t>(swapchain_images_.size())};
+    std::array<vk::DescriptorPoolSize, 2> pool_sizes;
+    pool_sizes[0]
+        .setType(vk::DescriptorType::eUniformBuffer)
+        .setDescriptorCount(static_cast<uint32_t>(swapchain_images_.size()));
+    pool_sizes[1]
+        .setType(vk::DescriptorType::eCombinedImageSampler)
+        .setDescriptorCount(static_cast<uint32_t>(swapchain_images_.size()));
+
     const vk::DescriptorPoolCreateInfo create_info{
-        {}, static_cast<uint32_t>(swapchain_images_.size()), 1, &pool_size};
+        {},
+        static_cast<uint32_t>(swapchain_images_.size()),
+        static_cast<uint32_t>(pool_sizes.size()),
+        pool_sizes.data()};
 
     descriptor_pool_ = device_->createDescriptorPoolUnique(create_info);
   }
@@ -880,16 +897,22 @@ private:
       const vk::DescriptorBufferInfo buffer_info{*uniform_buffers_[i], 0,
                                                  VK_WHOLE_SIZE};
 
-      const vk::WriteDescriptorSet write{descriptor_sets_[i],
-                                         0,
-                                         0,
-                                         1,
-                                         vk::DescriptorType::eUniformBuffer,
-                                         nullptr,
-                                         &buffer_info,
-                                         nullptr};
+      const vk::DescriptorImageInfo image_info{
+          *texture_sampler_, *texture_image_view_,
+          vk::ImageLayout::eShaderReadOnlyOptimal};
 
-      device_->updateDescriptorSets(1, &write, 0, nullptr);
+      std::array writes{
+          vk::WriteDescriptorSet{descriptor_sets_[i], 0, 0, 1,
+                                 vk::DescriptorType::eUniformBuffer, nullptr,
+                                 &buffer_info, nullptr},
+          vk::WriteDescriptorSet{descriptor_sets_[i], 1, 0, 1,
+                                 vk::DescriptorType::eCombinedImageSampler,
+                                 &image_info, nullptr, nullptr}
+
+      };
+
+      device_->updateDescriptorSets(static_cast<uint32_t>(writes.size()),
+                                    writes.data(), 0, nullptr);
     }
   }
 
