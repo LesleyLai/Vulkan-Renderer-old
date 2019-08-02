@@ -273,6 +273,9 @@ private:
   std::vector<vk::UniqueBuffer> uniform_buffers_;
   std::vector<vk::UniqueDeviceMemory> uniform_buffers_memory_;
 
+  vk::UniqueImage texture_image_;
+  vk::UniqueDeviceMemory texture_image_memory_;
+
   [[nodiscard]] auto create_instance() -> vk::UniqueInstance
   {
     if (vk_enable_validation_layers) {
@@ -678,35 +681,114 @@ private:
     const vk::CommandBufferAllocateInfo alloc_info{
         *command_pool_, vk::CommandBufferLevel::ePrimary, 1};
 
-    const auto command_buffers =
-        device_->allocateCommandBuffersUnique(alloc_info);
-    const auto& command_buffer = command_buffers[0].get();
+    submit_one_time_commands(
+        [&src, &dst, size](const vk::CommandBuffer& command_buffer) {
+          vk::BufferCopy copy_region{0, 0, size};
+          command_buffer.copyBuffer(src, dst, 1, &copy_region);
+        });
+  }
 
-    const vk::CommandBufferBeginInfo begin_info{
-        vk::CommandBufferUsageFlagBits::eOneTimeSubmit};
-    command_buffer.begin(begin_info);
-    vk::BufferCopy copy_region{0, 0, size};
-    command_buffer.copyBuffer(src, dst, 1, &copy_region);
-    command_buffer.end();
+  void transition_image_layout(const vk::Image& image, const vk::Format format,
+                               const vk::ImageLayout& old_layout,
+                               const vk::ImageLayout& new_layout)
+  {
+    submit_one_time_commands([&](const vk::CommandBuffer& command_buffer) {
+      vk::ImageMemoryBarrier barrier;
 
-    vk::SubmitInfo submit_info;
-    submit_info.setCommandBufferCount(1).setPCommandBuffers(&command_buffer);
-    graphics_queue_.submit(1, &submit_info, vk::Fence{});
-    graphics_queue_.waitIdle();
+      barrier.setOldLayout(old_layout)
+          .setNewLayout(new_layout)
+          .setSrcQueueFamilyIndex(VK_QUEUE_FAMILY_IGNORED)
+          .setDstQueueFamilyIndex(VK_QUEUE_FAMILY_IGNORED)
+          .setImage(image)
+          .setSubresourceRange({vk::ImageAspectFlagBits::eColor, 0, 1, 0, 1});
+
+      vk::PipelineStageFlags source_stage;
+      vk::PipelineStageFlags destination_stage;
+
+      if (old_layout == vk::ImageLayout::eUndefined &&
+          new_layout == vk::ImageLayout::eTransferDstOptimal) {
+        barrier.setSrcAccessMask({}).setDstAccessMask(
+            vk::AccessFlagBits::eTransferWrite);
+
+        source_stage = vk::PipelineStageFlagBits::eTopOfPipe;
+        destination_stage = vk::PipelineStageFlagBits::eTransfer;
+      } else if (old_layout == vk::ImageLayout::eTransferDstOptimal &&
+                 new_layout == vk::ImageLayout::eShaderReadOnlyOptimal) {
+
+        barrier.setSrcAccessMask(vk::AccessFlagBits::eTransferWrite)
+            .setDstAccessMask(vk::AccessFlagBits::eShaderRead);
+
+        source_stage = vk::PipelineStageFlagBits::eTransfer;
+        destination_stage = vk::PipelineStageFlagBits::eFragmentShader;
+      } else {
+        throw std::invalid_argument("unsupported layout transition!");
+      }
+
+      command_buffer.pipelineBarrier(source_stage, destination_stage, {}, 0,
+                                     nullptr, 0, nullptr, 1, &barrier);
+    });
+  }
+
+  void copy_buffer_to_image(const vk::Buffer& buffer, vk::Image& image,
+                            std::uint32_t width, std::uint32_t height)
+  {
+    submit_one_time_commands([&buffer, &image, width,
+                              height](const vk::CommandBuffer& command_buffer) {
+      vk::BufferImageCopy region;
+      region.setBufferOffset(0)
+          .setBufferRowLength(0)
+          .setBufferImageHeight(0)
+          .setImageSubresource(vk::ImageSubresourceLayers{
+              vk::ImageAspectFlagBits::eColor, 0, 0, 1})
+          .setImageOffset(vk::Offset3D{0, 0, 0})
+          .setImageExtent(vk::Extent3D{width, height, 1});
+
+      command_buffer.copyBufferToImage(
+          buffer, image, vk::ImageLayout::eTransferDstOptimal, 1, &region);
+    });
   }
 
   auto create_texture_image() -> void
   {
     int tex_width, tex_height, tex_channels;
-    const stbi_uc* pixels =
-        stbi_load("textures/texture.jpg", &tex_width, &tex_height,
-                  &tex_channels, STBI_rgb_alpha);
-    const auto image_size =
-        static_cast<vk::DeviceSize>(tex_width * tex_height * 4);
-
+    stbi_uc* pixels = stbi_load("textures/texture.jpg", &tex_width, &tex_height,
+                                &tex_channels, STBI_rgb_alpha);
     if (!pixels) {
       throw std::runtime_error("failed to load texture image!");
     }
+
+    const auto image_size =
+        static_cast<vk::DeviceSize>(tex_width * tex_height * 4);
+
+    const auto [staging_buffer, staging_buffer_memory] = create_buffer(
+        *device_, image_size, vk::BufferUsageFlagBits::eTransferSrc,
+        vk::MemoryPropertyFlagBits::eHostVisible |
+            vk::MemoryPropertyFlagBits::eHostCoherent);
+
+    void* data = device_->mapMemory(*staging_buffer_memory, 0, image_size);
+    memcpy(data, pixels, static_cast<size_t>(image_size));
+    device_->unmapMemory(*staging_buffer_memory);
+
+    stbi_image_free(pixels);
+
+    std::tie(texture_image_, texture_image_memory_) = create_image(
+        static_cast<std::uint32_t>(tex_width),
+        static_cast<std::uint32_t>(tex_height), vk::Format::eR8G8B8A8Unorm,
+        vk::ImageTiling::eOptimal,
+        vk::ImageUsageFlagBits::eTransferDst | vk::ImageUsageFlagBits::eSampled,
+        vk::MemoryPropertyFlagBits::eDeviceLocal);
+
+    transition_image_layout(*texture_image_, vk::Format::eR8G8B8A8Unorm,
+                            vk::ImageLayout::eUndefined,
+                            vk::ImageLayout::eTransferDstOptimal);
+
+    copy_buffer_to_image(*staging_buffer, *texture_image_,
+                         static_cast<std::uint32_t>(tex_width),
+                         static_cast<std::uint32_t>(tex_height));
+
+    transition_image_layout(*texture_image_, vk::Format::eR8G8B8A8Unorm,
+                            vk::ImageLayout::eTransferDstOptimal,
+                            vk::ImageLayout::eShaderReadOnlyOptimal);
   }
 
   auto create_vertex_buffer() -> void
@@ -1097,6 +1179,14 @@ private:
                                    const vk::BufferUsageFlags& usages,
                                    const vk::MemoryPropertyFlags& properties)
       -> std::tuple<vk::UniqueBuffer, vk::UniqueDeviceMemory>;
+
+  [[nodiscard]] auto create_image(std::uint32_t width, std::uint32_t height,
+                                  vk::Format format, vk::ImageTiling tiling,
+                                  vk::ImageUsageFlags usage,
+                                  vk::MemoryPropertyFlags properties)
+      -> std::tuple<vk::UniqueImage, vk::UniqueDeviceMemory>;
+
+  template <typename Func> auto submit_one_time_commands(Func&& f) -> void;
 };
 
 static void framebuffer_resize_callback(GLFWwindow* window, int /*width*/,
@@ -1115,10 +1205,11 @@ int main() try {
   std::fputs("Unknown exception thrown!\n", stderr);
 }
 
-std::tuple<vk::UniqueBuffer, vk::UniqueDeviceMemory>
+[[nodiscard]] auto
 Application::create_buffer(const vk::Device& device, vk::DeviceSize size,
                            const vk::BufferUsageFlags& usages,
                            const vk::MemoryPropertyFlags& properties)
+    -> std::tuple<vk::UniqueBuffer, vk::UniqueDeviceMemory>
 {
   const vk::BufferCreateInfo create_info{
       {}, size, usages, vk::SharingMode::eExclusive};
@@ -1133,4 +1224,61 @@ Application::create_buffer(const vk::Device& device, vk::DeviceSize size,
   auto buffer_memory = device.allocateMemoryUnique(alloc_info);
   device.bindBufferMemory(*buffer, *buffer_memory, 0);
   return {std::move(buffer), std::move(buffer_memory)};
+}
+
+[[nodiscard]] auto
+Application::create_image(std::uint32_t width, std::uint32_t height,
+                          vk::Format format, vk::ImageTiling tiling,
+                          vk::ImageUsageFlags usage,
+                          vk::MemoryPropertyFlags properties)
+    -> std::tuple<vk::UniqueImage, vk::UniqueDeviceMemory>
+{
+  const vk::ImageCreateInfo image_create_info{{},
+                                              vk::ImageType::e2D,
+                                              format,
+                                              vk::Extent3D{width, height, 1},
+                                              1,
+                                              1,
+                                              vk::SampleCountFlagBits::e1,
+                                              tiling,
+                                              usage,
+                                              vk::SharingMode::eExclusive,
+                                              0,
+                                              nullptr,
+                                              vk::ImageLayout::eUndefined};
+  auto image = device_->createImageUnique(image_create_info);
+  const auto memory_requirement = device_->getImageMemoryRequirements(*image);
+
+  const vk::MemoryAllocateInfo malloc_info{
+      memory_requirement.size,
+      find_memory_type(memory_requirement.memoryTypeBits, properties)};
+  auto image_memory = device_->allocateMemoryUnique(malloc_info);
+  device_->bindImageMemory(*image, *image_memory, 0);
+
+  return {std::move(image), std::move(image_memory)};
+}
+
+template <typename Func>
+auto Application::submit_one_time_commands(Func&& f) -> void
+{
+  const vk::CommandBufferAllocateInfo alloc_info{
+      *command_pool_, vk::CommandBufferLevel::ePrimary, 1};
+
+  vk::CommandBuffer command_buffer;
+  device_->allocateCommandBuffers(&alloc_info, &command_buffer);
+
+  const vk::CommandBufferBeginInfo begin_info{
+      vk::CommandBufferUsageFlagBits::eOneTimeSubmit};
+  command_buffer.begin(begin_info);
+
+  std::forward<Func>(f)(command_buffer);
+
+  command_buffer.end();
+
+  vk::SubmitInfo submit_info;
+  submit_info.setCommandBufferCount(1).setPCommandBuffers(&command_buffer);
+  graphics_queue_.submit(1, &submit_info, vk::Fence{});
+  graphics_queue_.waitIdle();
+
+  device_->freeCommandBuffers(*command_pool_, 1, &command_buffer);
 }
