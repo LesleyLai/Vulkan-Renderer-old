@@ -195,13 +195,15 @@ public:
         device_->getQueue(queue_family_indices_.present_family.value(), 0);
 
     create_swap_chain();
-    create_image_views();
+    create_swapchain_image_views();
     create_render_pass();
     create_descriptor_set_layout();
     create_graphics_pipeline();
     create_frame_buffers();
     create_command_pool();
     create_texture_image();
+    create_texture_image_view();
+    create_texture_sampler();
     create_vertex_buffer();
     create_index_buffer();
     create_uniform_buffers();
@@ -275,6 +277,8 @@ private:
 
   vk::UniqueImage texture_image_;
   vk::UniqueDeviceMemory texture_image_memory_;
+  vk::UniqueImageView texture_image_view_;
+  vk::UniqueSampler texture_sampler_;
 
   [[nodiscard]] auto create_instance() -> vk::UniqueInstance
   {
@@ -371,6 +375,7 @@ private:
     }
 
     vk::PhysicalDeviceFeatures device_features;
+    device_features.samplerAnisotropy = true;
 
     vk::DeviceCreateInfo create_info;
     create_info.setPQueueCreateInfos(queue_create_infos.data())
@@ -446,28 +451,14 @@ private:
     swapchain_extent_ = extent;
   }
 
-  auto create_image_views() -> void
+  auto create_swapchain_image_views() -> void
   {
     swapchain_image_views_.clear();
     swapchain_image_views_.reserve(swapchain_images_.size());
 
     for (const auto& image : swapchain_images_) {
-      vk::ImageSubresourceRange subresource_range;
-      subresource_range.setAspectMask(vk::ImageAspectFlagBits::eColor)
-          .setBaseMipLevel(0)
-          .setLevelCount(1)
-          .setBaseArrayLayer(0)
-          .setLayerCount(1);
-
-      vk::ImageViewCreateInfo create_info;
-      create_info.setImage(image)
-          .setViewType(vk::ImageViewType::e2D)
-          .setFormat(swapchain_image_format_)
-          .setComponents(vk::ComponentMapping{})
-          .setSubresourceRange(subresource_range);
-
-      swapchain_image_views_.emplace_back(
-          device_->createImageViewUnique(create_info));
+      swapchain_image_views_.push_back(
+          create_image_view(image, swapchain_image_format_));
     }
   }
 
@@ -791,6 +782,34 @@ private:
                             vk::ImageLayout::eShaderReadOnlyOptimal);
   }
 
+  auto create_texture_image_view() -> void
+  {
+    texture_image_view_ =
+        create_image_view(*texture_image_, vk::Format::eR8G8B8A8Unorm);
+  }
+
+  auto create_texture_sampler() -> void
+  {
+    vk::SamplerCreateInfo create_info;
+    create_info.setMinFilter(vk::Filter::eLinear)
+        .setMagFilter(vk::Filter::eLinear)
+        .setAddressModeU(vk::SamplerAddressMode::eRepeat)
+        .setAddressModeV(vk::SamplerAddressMode::eRepeat)
+        .setAddressModeW(vk::SamplerAddressMode::eRepeat)
+        .setAnisotropyEnable(true)
+        .setMaxAnisotropy(16)
+        .setBorderColor(vk::BorderColor::eIntOpaqueBlack)
+        .setUnnormalizedCoordinates(false)
+        .setCompareEnable(false)
+        .setCompareOp(vk::CompareOp::eAlways)
+        .setMipmapMode(vk::SamplerMipmapMode::eLinear)
+        .setMipLodBias(0.f)
+        .setMinLod(0.f)
+        .setMaxLod(0.f);
+
+    texture_sampler_ = device_->createSamplerUnique(create_info);
+  }
+
   auto create_vertex_buffer() -> void
   {
     const auto size = sizeof(vertices[0]) * vertices.size();
@@ -971,7 +990,7 @@ private:
     swapchain_.reset();
 
     create_swap_chain();
-    create_image_views();
+    create_swapchain_image_views();
     create_render_pass();
     create_graphics_pipeline();
     create_frame_buffers();
@@ -1103,7 +1122,10 @@ private:
                             !swapChainSupport.present_modes.empty();
     }
 
-    return indices.is_complete() && extensions_supported && swap_chain_adequate;
+    const auto supported_features = device.getFeatures();
+
+    return indices.is_complete() && extensions_supported &&
+           swap_chain_adequate && supported_features.samplerAnisotropy;
   }
 
   [[nodiscard]] auto find_queue_families(const vk::PhysicalDevice& device)
@@ -1186,6 +1208,10 @@ private:
                                   vk::MemoryPropertyFlags properties)
       -> std::tuple<vk::UniqueImage, vk::UniqueDeviceMemory>;
 
+  [[nodiscard]] auto create_image_view(const vk::Image& image,
+                                       const vk::Format& format) const
+      -> vk::UniqueImageView;
+
   template <typename Func> auto submit_one_time_commands(Func&& f) -> void;
 };
 
@@ -1256,6 +1282,28 @@ Application::create_image(std::uint32_t width, std::uint32_t height,
   device_->bindImageMemory(*image, *image_memory, 0);
 
   return {std::move(image), std::move(image_memory)};
+}
+
+[[nodiscard]] auto
+Application::create_image_view(const vk::Image& image,
+                               const vk::Format& format) const
+    -> vk::UniqueImageView
+{
+  vk::ImageSubresourceRange subresource_range;
+  subresource_range.setAspectMask(vk::ImageAspectFlagBits::eColor)
+      .setBaseMipLevel(0)
+      .setLevelCount(1)
+      .setBaseArrayLayer(0)
+      .setLayerCount(1);
+
+  vk::ImageViewCreateInfo create_info;
+  create_info.setImage(image)
+      .setViewType(vk::ImageViewType::e2D)
+      .setFormat(format)
+      .setComponents(vk::ComponentMapping{})
+      .setSubresourceRange(subresource_range);
+
+  return device_->createImageViewUnique(create_info);
 }
 
 template <typename Func>
