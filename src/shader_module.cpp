@@ -3,6 +3,8 @@
 
 #include "shader_module.hpp"
 
+namespace vulkan {
+
 [[nodiscard]] static auto read_file(const std::string& filename)
     -> std::vector<char>
 {
@@ -17,7 +19,7 @@
   buffer.resize(file_size);
 
   file.seekg(0);
-  file.read(buffer.data(), file_size);
+  file.read(buffer.data(), static_cast<std::size_t>(file_size));
 
   return buffer;
 }
@@ -38,3 +40,5 @@
 
   return device.createShaderModuleUnique(create_info);
 }
+
+} // namespace vulkan

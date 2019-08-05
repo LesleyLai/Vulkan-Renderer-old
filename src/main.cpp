@@ -19,6 +19,7 @@
 #include <stdexcept>
 #include <vector>
 
+#include "gltf.hpp"
 #include "platform.hpp"
 #include "shader_module.hpp"
 
@@ -215,6 +216,7 @@ public:
     create_texture_image();
     create_texture_image_view();
     create_texture_sampler();
+    load_model();
     create_vertex_buffer();
     create_index_buffer();
     create_uniform_buffers();
@@ -557,9 +559,9 @@ private:
   auto create_graphics_pipeline() -> void
   {
     auto vert_shader_module =
-        create_shader_module("shaders/shader.vert.spv", *device_);
+        vulkan::create_shader_module("shaders/shader.vert.spv", *device_);
     auto frag_shader_module =
-        create_shader_module("shaders/shader.frag.spv", *device_);
+        vulkan::create_shader_module("shaders/shader.frag.spv", *device_);
 
     vk::PipelineShaderStageCreateInfo vert_shader_stage_info;
     vert_shader_stage_info.setStage(vk::ShaderStageFlagBits::eVertex)
@@ -886,6 +888,11 @@ private:
         .setMaxLod(0.f);
 
     texture_sampler_ = device_->createSamplerUnique(create_info);
+  }
+
+  auto load_model() -> void
+  {
+    vulkan::Model model = vulkan::load_gltf_files("models/Box.gltf");
   }
 
   auto create_vertex_buffer() -> void
@@ -1319,7 +1326,8 @@ static void framebuffer_resize_callback(GLFWwindow* window, int /*width*/,
   app->frame_buffer_resized = true;
 }
 
-int main() try {
+int main()
+try {
   Application app;
   app.exec();
 } catch (const std::exception& e) {

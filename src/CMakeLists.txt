@@ -1,7 +1,7 @@
 find_package(Vulkan)
 
 add_executable(VulkanRenderer "main.cpp"
-    "platform.hpp" "platform.cpp"
+    "gltf.hpp" "gltf.cpp" "platform.hpp" "platform.cpp"
     "shader_module.hpp" "shader_module.cpp")
 target_link_libraries(VulkanRenderer
     PRIVATE compiler_warnings
@@ -27,6 +27,9 @@ compile_shader(fragShader
 target_compile_definitions(VulkanRenderer PUBLIC
     GLM_FORCE_RADIANS GLM_FORCE_DEPTH_ZERO_TO_ONE)
 
+target_include_directories(VulkanRenderer PRIVATE
+    ${CMAKE_SOURCE_DIR}/third-party/tinygltf
+    )
 
 add_dependencies(VulkanRenderer vertShader)
 add_dependencies(VulkanRenderer fragShader)
