@@ -19,9 +19,12 @@
 #include <stdexcept>
 #include <vector>
 
+#include "buffer_utils.hpp"
+#include "camera.hpp"
 #include "gltf.hpp"
-#include "platform.hpp"
+#include "graphics_pipeline.hpp"
 #include "shader_module.hpp"
+#include "window.hpp"
 
 constexpr std::array validation_layers = {"VK_LAYER_KHRONOS_validation"};
 
@@ -50,7 +53,7 @@ struct Vertex {
   }
 
   [[nodiscard]] static auto attributes_descriptions()
-      -> std::array<vk::VertexInputAttributeDescription, 3>
+      -> std::vector<vk::VertexInputAttributeDescription>
   {
     return {
         vk::VertexInputAttributeDescription{0, 0, vk::Format::eR32G32B32Sfloat,
@@ -138,13 +141,13 @@ struct SwapChainSupportDetails {
 
 [[nodiscard]] auto
 choose_swap_extent(const vk::SurfaceCapabilitiesKHR& capabilities,
-                   const Platform& platform) -> vk::Extent2D
+                   const Window& window) -> vk::Extent2D
 {
   if (capabilities.currentExtent.width !=
       std::numeric_limits<std::uint32_t>::max()) {
     return capabilities.currentExtent;
   }
-  const auto res = platform.get_resolution();
+  const auto res = window.get_resolution();
   VkExtent2D actual_extent{static_cast<std::uint32_t>(res.width),
                            static_cast<std::uint32_t>(res.height)};
 
@@ -188,15 +191,15 @@ public:
   bool frame_buffer_resized = false;
 
   Application()
-      : platform_{1440, 900, "Vulkan Renderer"}, instance_{create_instance()},
+      : window_{1440, 900, "Vulkan Renderer"}, instance_{create_instance()},
         dldy_{create_dynamic_loader()}
   {
-    glfwSetFramebufferSizeCallback(platform_.window(),
+    glfwSetFramebufferSizeCallback(window_.window(),
                                    framebuffer_resize_callback);
-    glfwSetWindowUserPointer(platform_.window(), this);
+    glfwSetWindowUserPointer(window_.window(), this);
 
     debug_messenger_ = setup_debug_messenger();
-    surface_ = platform_.create_vulkan_surface(instance_.get(), dldy_);
+    surface_ = window_.create_vulkan_surface(instance_.get(), dldy_);
     physical_device_ = pick_physical_device();
     queue_family_indices_ = find_queue_families(physical_device_);
     device_ = create_logical_device();
@@ -209,7 +212,35 @@ public:
     create_swapchain_image_views();
     create_render_pass();
     create_descriptor_set_layout();
-    create_graphics_pipeline();
+
+    vertex_shader_ =
+        vulkan::create_shader_module("shaders/shader.vert.spv", *device_);
+    frag_shader_ =
+        vulkan::create_shader_module("shaders/shader.frag.spv", *device_);
+
+    pipeline_layout_ = vulkan::create_graphics_pipeline_layout(
+        *device_, *descriptor_set_layout_);
+
+    const vk::Viewport viewport{
+        0,                                             // x
+        static_cast<float>(swapchain_extent_.height),  // y
+        static_cast<float>(swapchain_extent_.width),   // width
+        -static_cast<float>(swapchain_extent_.height), // height
+        0,                                             // minDepth
+        1};                                            // maxDepth
+
+    // Draw to the entire framebuffer
+    const vk::Rect2D scissor{vk::Offset2D{0, 0}, swapchain_extent_};
+
+    const vulkan::VertexInputInfo vertex_input_info{
+        Vertex::binding_description(), Vertex::attributes_descriptions()};
+
+    graphics_pipeline_ = vulkan::create_graphics_pipeline(
+        *device_, *render_pass_, vk::PrimitiveTopology::eTriangleList,
+        *pipeline_layout_, viewport, scissor,
+        {.vertex = *vertex_shader_, .fragment = *frag_shader_, .tess = {}},
+        vertex_input_info);
+
     create_command_pool();
     create_depth_resource();
     create_frame_buffers();
@@ -234,8 +265,8 @@ public:
 
   void exec()
   {
-    while (!platform_.should_close()) {
-      platform_.poll_events();
+    while (!window_.should_close()) {
+      window_.poll_events();
       render();
     }
 
@@ -243,7 +274,7 @@ public:
   }
 
 private:
-  Platform platform_;
+  Window window_;
   vk::UniqueInstance instance_;
   vk::DispatchLoaderDynamic dldy_;
   vk::UniqueHandle<vk::DebugUtilsMessengerEXT, vk::DispatchLoaderDynamic>
@@ -266,6 +297,10 @@ private:
   vk::UniqueImageView depth_image_view_;
 
   vk::UniqueRenderPass render_pass_;
+
+  vk::UniqueShaderModule vertex_shader_;
+  vk::UniqueShaderModule frag_shader_;
+
   vk::UniqueDescriptorSetLayout descriptor_set_layout_;
   vk::UniquePipelineLayout pipeline_layout_;
   vk::UniquePipeline graphics_pipeline_;
@@ -423,7 +458,7 @@ private:
     const auto present_mode =
         choose_swap_present_mode(swap_chain_support.present_modes);
     const auto extent =
-        choose_swap_extent(swap_chain_support.capabilities, platform_);
+        choose_swap_extent(swap_chain_support.capabilities, window_);
 
     std::uint32_t image_count =
         swap_chain_support.capabilities.minImageCount + 1;
@@ -554,116 +589,6 @@ private:
 
     descriptor_set_layout_ =
         device_->createDescriptorSetLayoutUnique(create_info);
-  }
-
-  auto create_graphics_pipeline() -> void
-  {
-    auto vert_shader_module =
-        vulkan::create_shader_module("shaders/shader.vert.spv", *device_);
-    auto frag_shader_module =
-        vulkan::create_shader_module("shaders/shader.frag.spv", *device_);
-
-    vk::PipelineShaderStageCreateInfo vert_shader_stage_info;
-    vert_shader_stage_info.setStage(vk::ShaderStageFlagBits::eVertex)
-        .setModule(*vert_shader_module)
-        .setPName("main");
-    vk::PipelineShaderStageCreateInfo frag_shader_stage_info;
-    frag_shader_stage_info.setStage(vk::ShaderStageFlagBits::eFragment)
-        .setModule(*frag_shader_module)
-        .setPName("main");
-
-    const auto binding_description = Vertex::binding_description();
-    const auto attribute_descriptions = Vertex::attributes_descriptions();
-
-    const vk::PipelineVertexInputStateCreateInfo vertex_input_stage_create_info{
-        {},
-        1,
-        &binding_description,
-        static_cast<uint32_t>(attribute_descriptions.size()),
-        attribute_descriptions.data()};
-
-    const vk::PipelineInputAssemblyStateCreateInfo input_assembly{
-        {}, vk::PrimitiveTopology::eTriangleList, false};
-
-    const vk::Viewport viewport{
-        0,                                            // x
-        0,                                            // y
-        static_cast<float>(swapchain_extent_.width),  // width
-        static_cast<float>(swapchain_extent_.height), // height
-        0,                                            // minDepth
-        1};                                           // maxDepth
-
-    // Draw to the entire framebuffer
-    const vk::Rect2D scissor{vk::Offset2D{0, 0}, swapchain_extent_};
-
-    vk::PipelineViewportStateCreateInfo viewport_state_create_info;
-    viewport_state_create_info.setViewportCount(1)
-        .setPViewports(&viewport)
-        .setScissorCount(1)
-        .setPScissors(&scissor);
-
-    vk::PipelineRasterizationStateCreateInfo rasterizer_create_info;
-    rasterizer_create_info.setDepthClampEnable(false)
-        .setRasterizerDiscardEnable(false)
-        .setPolygonMode(vk::PolygonMode::eFill)
-        .setLineWidth(1)
-        .setCullMode(vk::CullModeFlagBits::eBack)
-        .setFrontFace(vk::FrontFace::eClockwise)
-        .setDepthBiasEnable(false);
-
-    vk::PipelineMultisampleStateCreateInfo multisampling_create_info;
-    multisampling_create_info.setSampleShadingEnable(false)
-        .setRasterizationSamples(vk::SampleCountFlagBits::e1);
-
-    vk::PipelineColorBlendAttachmentState color_blend_attachment;
-    color_blend_attachment
-        .setColorWriteMask(
-            vk::ColorComponentFlagBits::eR | vk::ColorComponentFlagBits::eG |
-            vk::ColorComponentFlagBits::eB | vk::ColorComponentFlagBits::eA)
-        .setBlendEnable(false);
-
-    vk::PipelineColorBlendStateCreateInfo color_blend_create_info;
-    color_blend_create_info.setLogicOpEnable(false)
-        .setLogicOp(vk::LogicOp::eCopy)
-        .setAttachmentCount(1)
-        .setPAttachments(&color_blend_attachment)
-        .setBlendConstants({0, 0, 0, 0});
-
-    vk::PipelineLayoutCreateInfo pipeline_layout_create_info;
-    pipeline_layout_create_info.setSetLayoutCount(1)
-        .setPSetLayouts(&descriptor_set_layout_.get())
-        .setPushConstantRangeCount(0);
-
-    pipeline_layout_ =
-        device_->createPipelineLayoutUnique(pipeline_layout_create_info);
-
-    std::array shader_stages{vert_shader_stage_info, frag_shader_stage_info};
-
-    vk::PipelineDepthStencilStateCreateInfo depth_stencil_info;
-    depth_stencil_info.setDepthTestEnable(true)
-        .setDepthWriteEnable(true)
-        .setDepthCompareOp(vk::CompareOp::eLess)
-        .setDepthBoundsTestEnable(false)
-        .setStencilTestEnable(false);
-
-    vk::GraphicsPipelineCreateInfo pipeline_create_info;
-    pipeline_create_info
-        .setStageCount(static_cast<std::uint32_t>(shader_stages.size()))
-        .setPStages(shader_stages.data())
-        .setPVertexInputState(&vertex_input_stage_create_info)
-        .setPInputAssemblyState(&input_assembly)
-        .setPViewportState(&viewport_state_create_info)
-        .setPRasterizationState(&rasterizer_create_info)
-        .setPMultisampleState(&multisampling_create_info)
-        .setPColorBlendState(&color_blend_create_info)
-        .setPDepthStencilState(&depth_stencil_info)
-        .setLayout(*pipeline_layout_)
-        .setRenderPass(*render_pass_)
-        .setSubpass(0)
-        .setBasePipelineHandle(nullptr);
-
-    graphics_pipeline_ =
-        device_->createGraphicsPipelineUnique(nullptr, pipeline_create_info);
   }
 
   auto create_frame_buffers() -> void
@@ -1083,7 +1008,7 @@ private:
 
     Resolution res{0, 0};
     while (res.width == 0 && res.height == 0) {
-      res = platform_.get_resolution();
+      res = window_.get_resolution();
       glfwWaitEvents();
     }
 
@@ -1094,7 +1019,27 @@ private:
     create_swap_chain();
     create_swapchain_image_views();
     create_render_pass();
-    create_graphics_pipeline();
+
+    const vk::Viewport viewport{
+        0,                                             // x
+        static_cast<float>(swapchain_extent_.height),  // y
+        static_cast<float>(swapchain_extent_.width),   // width
+        -static_cast<float>(swapchain_extent_.height), // height
+        0,                                             // minDepth
+        1};                                            // maxDepth
+
+    // Draw to the entire framebuffer
+    const vk::Rect2D scissor{vk::Offset2D{0, 0}, swapchain_extent_};
+
+    const vulkan::VertexInputInfo vertex_input_info{
+        Vertex::binding_description(), Vertex::attributes_descriptions()};
+
+    graphics_pipeline_ = vulkan::create_graphics_pipeline(
+        *device_, *render_pass_, vk::PrimitiveTopology::eTriangleStrip,
+        *pipeline_layout_, viewport, scissor,
+        {.vertex = *vertex_shader_, .fragment = *frag_shader_, .tess = {}},
+        vertex_input_info);
+
     create_depth_resource();
     create_frame_buffers();
     create_uniform_buffers();
@@ -1264,7 +1209,7 @@ private:
   [[nodiscard]] auto get_required_extensions() -> std::vector<const char*>
   {
     std::vector<const char*> extensions =
-        platform_.get_required_vulkan_extensions();
+        window_.get_required_vulkan_extensions();
 
     if (vk_enable_validation_layers) {
       extensions.push_back(VK_EXT_DEBUG_UTILS_EXTENSION_NAME);

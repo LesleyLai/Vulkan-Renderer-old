@@ -1,51 +1,50 @@
-#include "platform.hpp"
+#include "window.hpp"
 
 #include <GLFW/glfw3.h>
 
-Platform::Platform(int width, int height, std::string_view title)
+Window::Window(int width, int height, std::string_view name)
 {
   glfwInit();
   glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
-  window_ = glfwCreateWindow(width, height, title.data(), nullptr, nullptr);
+  window_ = glfwCreateWindow(width, height, name.data(), nullptr, nullptr);
 }
 
-Platform::~Platform()
+Window::~Window()
 {
   glfwDestroyWindow(window_);
   glfwTerminate();
 }
 
-Platform::Platform(Platform&& other) noexcept : window_{other.window_}
+Window::Window(Window&& other) noexcept : window_{other.window_}
 {
   other.window_ = nullptr;
 }
 
-auto Platform::operator=(Platform&& other) noexcept -> Platform&
+auto Window::operator=(Window&& other) noexcept -> Window&
 {
   std::swap(window_, other.window_);
   return *this;
 }
 
-[[nodiscard]] auto Platform::should_close() noexcept -> bool
+[[nodiscard]] auto Window::should_close() noexcept -> bool
 {
   return glfwWindowShouldClose(window_);
 }
 
-void Platform::poll_events() noexcept
+void Window::poll_events() noexcept
 {
   glfwPollEvents();
 }
 
-[[nodiscard]] auto Platform::get_resolution() const noexcept -> Resolution
+[[nodiscard]] auto Window::get_resolution() const noexcept -> Resolution
 {
-  int width;
-  int height;
+  int width, height;
   glfwGetWindowSize(window_, &width, &height);
   return Resolution{width, height};
 }
 
 [[nodiscard]] auto
-Platform::create_vulkan_surface(const vk::Instance& instance,
+Window::create_vulkan_surface(const vk::Instance& instance,
                                 const vk::DispatchLoaderDynamic& dldy) const
     -> vk::UniqueHandle<vk::SurfaceKHR, vk::DispatchLoaderDynamic>
 {
@@ -59,7 +58,7 @@ Platform::create_vulkan_surface(const vk::Instance& instance,
       vk::SurfaceKHR{surface}, destroyer};
 }
 
-[[nodiscard]] auto Platform::get_required_vulkan_extensions()
+[[nodiscard]] auto Window::get_required_vulkan_extensions()
     -> std::vector<const char*>
 {
   uint32_t glfw_extension_count = 0;

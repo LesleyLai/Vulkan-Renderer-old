@@ -1,8 +1,10 @@
 find_package(Vulkan)
 
 add_executable(VulkanRenderer "main.cpp"
-    "gltf.hpp" "gltf.cpp" "platform.hpp" "platform.cpp"
-    "shader_module.hpp" "shader_module.cpp")
+    "graphics_pipeline.hpp" "graphics_pipeline.cpp"
+    "gltf.hpp" "gltf.cpp"
+    "shader_module.hpp" "shader_module.cpp"
+    "window.hpp" "window.cpp")
 target_link_libraries(VulkanRenderer
     PRIVATE compiler_warnings
     Vulkan::Vulkan

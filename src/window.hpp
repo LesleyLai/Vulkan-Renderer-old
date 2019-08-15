@@ -1,7 +1,8 @@
-#ifndef PLATFORM_HPP
-#define PLATFORM_HPP
+#ifndef WINDOW_HPP
+#define WINDOW_HPP
 
 #include <vector>
+#include <string_view>
 
 #include <vulkan/vulkan.hpp>
 
@@ -12,16 +13,16 @@ struct Resolution {
   int height;
 };
 
-class Platform {
+class Window {
 public:
-  Platform(int width, int height, std::string_view title);
-  ~Platform();
+  Window(int width, int height, std::string_view name);
+  ~Window();
 
-  Platform(const Platform&) = delete;
-  auto operator=(const Platform&) -> Platform& = delete;
+  Window(const Window&) = delete;
+  auto operator=(const Window&) -> Window& = delete;
 
-  Platform(Platform&& other) noexcept;
-  auto operator=(Platform&& other) noexcept -> Platform&;
+  Window(Window&& other) noexcept;
+  auto operator=(Window&& other) noexcept -> Window&;
 
   [[nodiscard]] auto should_close() noexcept -> bool;
 
@@ -49,4 +50,4 @@ private:
   GLFWwindow* window_ = nullptr;
 };
 
-#endif // PLATFORM_HPP
+#endif // WINDOW_HPP
