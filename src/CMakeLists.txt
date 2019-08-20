@@ -1,6 +1,8 @@
 find_package(Vulkan)
 
 add_executable(VulkanRenderer "main.cpp"
+    "buffer_utils.hpp" "buffer_utils.cpp"
+    "camera.hpp"
     "graphics_pipeline.hpp" "graphics_pipeline.cpp"
     "gltf.hpp" "gltf.cpp"
     "shader_module.hpp" "shader_module.cpp"

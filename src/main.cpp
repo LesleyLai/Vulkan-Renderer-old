@@ -221,26 +221,7 @@ public:
     pipeline_layout_ = vulkan::create_graphics_pipeline_layout(
         *device_, *descriptor_set_layout_);
 
-    const vk::Viewport viewport{
-        0,                                             // x
-        static_cast<float>(swapchain_extent_.height),  // y
-        static_cast<float>(swapchain_extent_.width),   // width
-        -static_cast<float>(swapchain_extent_.height), // height
-        0,                                             // minDepth
-        1};                                            // maxDepth
-
-    // Draw to the entire framebuffer
-    const vk::Rect2D scissor{vk::Offset2D{0, 0}, swapchain_extent_};
-
-    const vulkan::VertexInputInfo vertex_input_info{
-        Vertex::binding_description(), Vertex::attributes_descriptions()};
-
-    graphics_pipeline_ = vulkan::create_graphics_pipeline(
-        *device_, *render_pass_, vk::PrimitiveTopology::eTriangleList,
-        *pipeline_layout_, viewport, scissor,
-        {.vertex = *vertex_shader_, .fragment = *frag_shader_, .tess = {}},
-        vertex_input_info);
-
+    create_graphics_pipelines();
     create_command_pool();
     create_depth_resource();
     create_frame_buffers();
@@ -591,6 +572,29 @@ private:
         device_->createDescriptorSetLayoutUnique(create_info);
   }
 
+  auto create_graphics_pipelines() -> void
+  {
+    const vk::Viewport viewport{
+        0,                                             // x
+        static_cast<float>(swapchain_extent_.height),  // y
+        static_cast<float>(swapchain_extent_.width),   // width
+        -static_cast<float>(swapchain_extent_.height), // height
+        0,                                             // minDepth
+        1};                                            // maxDepth
+
+    // Draw to the entire framebuffer
+    const vk::Rect2D scissor{vk::Offset2D{0, 0}, swapchain_extent_};
+
+    const vulkan::VertexInputInfo vertex_input_info{
+        Vertex::binding_description(), Vertex::attributes_descriptions()};
+
+    graphics_pipeline_ = vulkan::create_graphics_pipeline(
+        *device_, *render_pass_, vk::PrimitiveTopology::eTriangleList,
+        *pipeline_layout_, viewport, scissor,
+        {.vertex = *vertex_shader_, .fragment = *frag_shader_, .tess = {}},
+        vertex_input_info);
+  }
+
   auto create_frame_buffers() -> void
   {
     swapchain_framebuffers_.clear();
@@ -638,18 +642,6 @@ private:
     }
 
     throw std::runtime_error("failed to find suitable memory type!");
-  }
-
-  auto copy_buffer(vk::Buffer src, vk::Buffer dst, vk::DeviceSize size) -> void
-  {
-    const vk::CommandBufferAllocateInfo alloc_info{
-        *command_pool_, vk::CommandBufferLevel::ePrimary, 1};
-
-    submit_one_time_commands(
-        [&src, &dst, size](const vk::CommandBuffer& command_buffer) {
-          vk::BufferCopy copy_region{0, 0, size};
-          command_buffer.copyBuffer(src, dst, 1, &copy_region);
-        });
   }
 
   void transition_image_layout(const vk::Image& image, const vk::Format format,
@@ -755,10 +747,11 @@ private:
     const auto image_size =
         static_cast<vk::DeviceSize>(tex_width * tex_height * 4);
 
-    const auto [staging_buffer, staging_buffer_memory] = create_buffer(
-        *device_, image_size, vk::BufferUsageFlagBits::eTransferSrc,
-        vk::MemoryPropertyFlagBits::eHostVisible |
-            vk::MemoryPropertyFlagBits::eHostCoherent);
+    const auto [staging_buffer, staging_buffer_memory] =
+        vulkan::create_buffer(physical_device_, *device_, image_size,
+                              vk::BufferUsageFlagBits::eTransferSrc,
+                              vk::MemoryPropertyFlagBits::eHostVisible |
+                                  vk::MemoryPropertyFlagBits::eHostCoherent);
 
     void* data = device_->mapMemory(*staging_buffer_memory, 0, image_size);
     memcpy(data, pixels, static_cast<size_t>(image_size));
@@ -823,45 +816,20 @@ private:
   auto create_vertex_buffer() -> void
   {
     const auto size = sizeof(vertices[0]) * vertices.size();
-    const auto [staging_buffer, staging_buffer_memory] =
-        create_buffer(*device_, size, vk::BufferUsageFlagBits::eTransferSrc,
-                      vk::MemoryPropertyFlagBits::eHostVisible |
-                          vk::MemoryPropertyFlagBits::eHostCoherent);
-
-    void* data;
-    device_->mapMemory(*staging_buffer_memory, 0, size, {}, &data);
-    memcpy(data, vertices.data(), size);
-    device_->unmapMemory(*staging_buffer_memory);
 
     std::tie(vertex_buffer_, vertex_buffer_memory_) =
-        create_buffer(*device_, size,
-                      vk::BufferUsageFlagBits::eTransferDst |
-                          vk::BufferUsageFlagBits::eVertexBuffer,
-                      vk::MemoryPropertyFlagBits::eDeviceLocal);
-
-    copy_buffer(*staging_buffer, *vertex_buffer_, size);
+        vulkan::create_buffer_from_data(
+            physical_device_, *device_, graphics_queue_, *command_pool_,
+            vk::BufferUsageFlagBits::eVertexBuffer, vertices.data(), size);
   }
 
   auto create_index_buffer() -> void
   {
     const auto size = sizeof(indices[0]) * indices.size();
-    const auto [staging_buffer, staging_buffer_memory] =
-        create_buffer(*device_, size, vk::BufferUsageFlagBits::eTransferSrc,
-                      vk::MemoryPropertyFlagBits::eHostVisible |
-                          vk::MemoryPropertyFlagBits::eHostCoherent);
-
-    void* data;
-    device_->mapMemory(*staging_buffer_memory, 0, size, {}, &data);
-    memcpy(data, indices.data(), size);
-    device_->unmapMemory(*staging_buffer_memory);
-
     std::tie(index_buffer_, index_buffer_memory_) =
-        create_buffer(*device_, size,
-                      vk::BufferUsageFlagBits::eTransferDst |
-                          vk::BufferUsageFlagBits::eIndexBuffer,
-                      vk::MemoryPropertyFlagBits::eDeviceLocal);
-
-    copy_buffer(*staging_buffer, *index_buffer_, size);
+        vulkan::create_buffer_from_data(
+            physical_device_, *device_, graphics_queue_, *command_pool_,
+            vk::BufferUsageFlagBits::eIndexBuffer, indices.data(), size);
   }
 
   auto create_descriptor_pool() -> void
@@ -926,10 +894,11 @@ private:
     uniform_buffers_memory_.resize(images_count);
 
     for (std::size_t i = 0; i < images_count; ++i) {
-      std::tie(uniform_buffers_[i], uniform_buffers_memory_[i]) = create_buffer(
-          *device_, buffer_size, vk::BufferUsageFlagBits::eUniformBuffer,
-          vk::MemoryPropertyFlagBits::eHostVisible |
-              vk::MemoryPropertyFlagBits::eHostCoherent);
+      std::tie(uniform_buffers_[i], uniform_buffers_memory_[i]) =
+          vulkan::create_buffer(physical_device_, *device_, buffer_size,
+                                vk::BufferUsageFlagBits::eUniformBuffer,
+                                vk::MemoryPropertyFlagBits::eHostVisible |
+                                    vk::MemoryPropertyFlagBits::eHostCoherent);
     }
   }
 
@@ -1019,27 +988,7 @@ private:
     create_swap_chain();
     create_swapchain_image_views();
     create_render_pass();
-
-    const vk::Viewport viewport{
-        0,                                             // x
-        static_cast<float>(swapchain_extent_.height),  // y
-        static_cast<float>(swapchain_extent_.width),   // width
-        -static_cast<float>(swapchain_extent_.height), // height
-        0,                                             // minDepth
-        1};                                            // maxDepth
-
-    // Draw to the entire framebuffer
-    const vk::Rect2D scissor{vk::Offset2D{0, 0}, swapchain_extent_};
-
-    const vulkan::VertexInputInfo vertex_input_info{
-        Vertex::binding_description(), Vertex::attributes_descriptions()};
-
-    graphics_pipeline_ = vulkan::create_graphics_pipeline(
-        *device_, *render_pass_, vk::PrimitiveTopology::eTriangleStrip,
-        *pipeline_layout_, viewport, scissor,
-        {.vertex = *vertex_shader_, .fragment = *frag_shader_, .tess = {}},
-        vertex_input_info);
-
+    create_graphics_pipelines();
     create_depth_resource();
     create_frame_buffers();
     create_uniform_buffers();
@@ -1244,12 +1193,6 @@ private:
     return result;
   }
 
-  [[nodiscard]] auto create_buffer(const vk::Device& device,
-                                   vk::DeviceSize size,
-                                   const vk::BufferUsageFlags& usages,
-                                   const vk::MemoryPropertyFlags& properties)
-      -> std::tuple<vk::UniqueBuffer, vk::UniqueDeviceMemory>;
-
   [[nodiscard]] auto create_image(std::uint32_t width, std::uint32_t height,
                                   vk::Format format, vk::ImageTiling tiling,
                                   vk::ImageUsageFlags usage,
@@ -1279,27 +1222,6 @@ try {
   fmt::print(stderr, "Error: {}\n", e.what());
 } catch (...) {
   std::fputs("Unknown exception thrown!\n", stderr);
-}
-
-[[nodiscard]] auto
-Application::create_buffer(const vk::Device& device, vk::DeviceSize size,
-                           const vk::BufferUsageFlags& usages,
-                           const vk::MemoryPropertyFlags& properties)
-    -> std::tuple<vk::UniqueBuffer, vk::UniqueDeviceMemory>
-{
-  const vk::BufferCreateInfo create_info{
-      {}, size, usages, vk::SharingMode::eExclusive};
-
-  auto buffer = device.createBufferUnique(create_info);
-
-  const auto memory_requirement = device.getBufferMemoryRequirements(*buffer);
-
-  const vk::MemoryAllocateInfo alloc_info{
-      memory_requirement.size,
-      find_memory_type(memory_requirement.memoryTypeBits, properties)};
-  auto buffer_memory = device.allocateMemoryUnique(alloc_info);
-  device.bindBufferMemory(*buffer, *buffer_memory, 0);
-  return {std::move(buffer), std::move(buffer_memory)};
 }
 
 [[nodiscard]] auto
