@@ -490,8 +490,9 @@ private:
     swapchain_image_views_.reserve(swapchain_images_.size());
 
     for (const auto& image : swapchain_images_) {
-      swapchain_image_views_.push_back(create_image_view(
-          image, swapchain_image_format_, vk::ImageAspectFlagBits::eColor));
+      swapchain_image_views_.push_back(
+          vulkan::create_image_view(*device_, image, swapchain_image_format_,
+                                    vk::ImageAspectFlagBits::eColor));
     }
   }
 
@@ -644,95 +645,22 @@ private:
     throw std::runtime_error("failed to find suitable memory type!");
   }
 
-  void transition_image_layout(const vk::Image& image, const vk::Format format,
-                               const vk::ImageLayout& old_layout,
-                               const vk::ImageLayout& new_layout)
-  {
-    submit_one_time_commands([&](const vk::CommandBuffer& command_buffer) {
-      vk::ImageMemoryBarrier barrier;
-
-      barrier.setOldLayout(old_layout)
-          .setNewLayout(new_layout)
-          .setSrcQueueFamilyIndex(VK_QUEUE_FAMILY_IGNORED)
-          .setDstQueueFamilyIndex(VK_QUEUE_FAMILY_IGNORED)
-          .setImage(image)
-          .setSubresourceRange({vk::ImageAspectFlagBits::eColor, 0, 1, 0, 1});
-
-      if (new_layout == vk::ImageLayout::eDepthStencilAttachmentOptimal) {
-        barrier.subresourceRange.aspectMask = vk::ImageAspectFlagBits::eDepth;
-      } else {
-        barrier.subresourceRange.aspectMask = vk::ImageAspectFlagBits::eColor;
-      }
-
-      vk::PipelineStageFlags source_stage;
-      vk::PipelineStageFlags destination_stage;
-
-      if (old_layout == vk::ImageLayout::eUndefined &&
-          new_layout == vk::ImageLayout::eTransferDstOptimal) {
-        barrier.setSrcAccessMask({}).setDstAccessMask(
-            vk::AccessFlagBits::eTransferWrite);
-
-        source_stage = vk::PipelineStageFlagBits::eTopOfPipe;
-        destination_stage = vk::PipelineStageFlagBits::eTransfer;
-      } else if (old_layout == vk::ImageLayout::eUndefined &&
-                 new_layout ==
-                     vk::ImageLayout::eDepthStencilAttachmentOptimal) {
-        barrier.setSrcAccessMask({}).setDstAccessMask(
-            vk::AccessFlagBits::eDepthStencilAttachmentRead |
-            vk::AccessFlagBits::eDepthStencilAttachmentWrite);
-
-        source_stage = vk::PipelineStageFlagBits::eTopOfPipe;
-        destination_stage = vk::PipelineStageFlagBits::eEarlyFragmentTests;
-      } else if (old_layout == vk::ImageLayout::eTransferDstOptimal &&
-                 new_layout == vk::ImageLayout::eShaderReadOnlyOptimal) {
-
-        barrier.setSrcAccessMask(vk::AccessFlagBits::eTransferWrite)
-            .setDstAccessMask(vk::AccessFlagBits::eShaderRead);
-
-        source_stage = vk::PipelineStageFlagBits::eTransfer;
-        destination_stage = vk::PipelineStageFlagBits::eFragmentShader;
-      } else {
-        throw std::invalid_argument("unsupported layout transition!");
-      }
-
-      command_buffer.pipelineBarrier(source_stage, destination_stage, {}, 0,
-                                     nullptr, 0, nullptr, 1, &barrier);
-    });
-  }
-
-  void copy_buffer_to_image(const vk::Buffer& buffer, vk::Image& image,
-                            std::uint32_t width, std::uint32_t height)
-  {
-    submit_one_time_commands([&buffer, &image, width,
-                              height](const vk::CommandBuffer& command_buffer) {
-      vk::BufferImageCopy region;
-      region.setBufferOffset(0)
-          .setBufferRowLength(0)
-          .setBufferImageHeight(0)
-          .setImageSubresource(vk::ImageSubresourceLayers{
-              vk::ImageAspectFlagBits::eColor, 0, 0, 1})
-          .setImageOffset(vk::Offset3D{0, 0, 0})
-          .setImageExtent(vk::Extent3D{width, height, 1});
-
-      command_buffer.copyBufferToImage(
-          buffer, image, vk::ImageLayout::eTransferDstOptimal, 1, &region);
-    });
-  }
-
   auto create_depth_resource() -> void
   {
     const auto format = depth_format;
-    std::tie(depth_image_, depth_image_memory_) =
-        create_image(swapchain_extent_.width, swapchain_extent_.height, format,
-                     vk::ImageTiling::eOptimal,
-                     vk::ImageUsageFlagBits::eDepthStencilAttachment,
-                     vk::MemoryPropertyFlagBits::eDeviceLocal);
+    std::tie(depth_image_, depth_image_memory_) = vulkan::create_image(
+        physical_device_, *device_, swapchain_extent_.width,
+        swapchain_extent_.height, format, vk::ImageTiling::eOptimal,
+        vk::ImageUsageFlagBits::eDepthStencilAttachment,
+        vk::MemoryPropertyFlagBits::eDeviceLocal);
 
-    depth_image_view_ = create_image_view(*depth_image_, format,
-                                          vk::ImageAspectFlagBits::eDepth);
+    depth_image_view_ = vulkan::create_image_view(
+        *device_, *depth_image_, format, vk::ImageAspectFlagBits::eDepth);
 
-    transition_image_layout(*depth_image_, format, vk::ImageLayout::eUndefined,
-                            vk::ImageLayout::eDepthStencilAttachmentOptimal);
+    vulkan::transition_image_layout(
+        *device_, graphics_queue_, *command_pool_, *depth_image_, format,
+        vk::ImageLayout::eUndefined,
+        vk::ImageLayout::eDepthStencilAttachmentOptimal);
   }
 
   auto create_texture_image() -> void
@@ -759,31 +687,34 @@ private:
 
     stbi_image_free(pixels);
 
-    std::tie(texture_image_, texture_image_memory_) = create_image(
-        static_cast<std::uint32_t>(tex_width),
+    std::tie(texture_image_, texture_image_memory_) = vulkan::create_image(
+        physical_device_, *device_, static_cast<std::uint32_t>(tex_width),
         static_cast<std::uint32_t>(tex_height), vk::Format::eR8G8B8A8Unorm,
         vk::ImageTiling::eOptimal,
         vk::ImageUsageFlagBits::eTransferDst | vk::ImageUsageFlagBits::eSampled,
         vk::MemoryPropertyFlagBits::eDeviceLocal);
 
-    transition_image_layout(*texture_image_, vk::Format::eR8G8B8A8Unorm,
-                            vk::ImageLayout::eUndefined,
-                            vk::ImageLayout::eTransferDstOptimal);
+    vulkan::transition_image_layout(*device_, graphics_queue_, *command_pool_,
+                                    *texture_image_, vk::Format::eR8G8B8A8Unorm,
+                                    vk::ImageLayout::eUndefined,
+                                    vk::ImageLayout::eTransferDstOptimal);
 
-    copy_buffer_to_image(*staging_buffer, *texture_image_,
-                         static_cast<std::uint32_t>(tex_width),
-                         static_cast<std::uint32_t>(tex_height));
+    vulkan::copy_buffer_to_image(*device_, graphics_queue_, *command_pool_,
+                                 *staging_buffer, *texture_image_,
+                                 static_cast<std::uint32_t>(tex_width),
+                                 static_cast<std::uint32_t>(tex_height));
 
-    transition_image_layout(*texture_image_, vk::Format::eR8G8B8A8Unorm,
-                            vk::ImageLayout::eTransferDstOptimal,
-                            vk::ImageLayout::eShaderReadOnlyOptimal);
+    vulkan::transition_image_layout(*device_, graphics_queue_, *command_pool_,
+                                    *texture_image_, vk::Format::eR8G8B8A8Unorm,
+                                    vk::ImageLayout::eTransferDstOptimal,
+                                    vk::ImageLayout::eShaderReadOnlyOptimal);
   }
 
   auto create_texture_image_view() -> void
   {
-    texture_image_view_ =
-        create_image_view(*texture_image_, vk::Format::eR8G8B8A8Unorm,
-                          vk::ImageAspectFlagBits::eColor);
+    texture_image_view_ = vulkan::create_image_view(
+        *device_, *texture_image_, vk::Format::eR8G8B8A8Unorm,
+        vk::ImageAspectFlagBits::eColor);
   }
 
   auto create_texture_sampler() -> void
@@ -1192,19 +1123,6 @@ private:
 
     return result;
   }
-
-  [[nodiscard]] auto create_image(std::uint32_t width, std::uint32_t height,
-                                  vk::Format format, vk::ImageTiling tiling,
-                                  vk::ImageUsageFlags usage,
-                                  vk::MemoryPropertyFlags properties)
-      -> std::tuple<vk::UniqueImage, vk::UniqueDeviceMemory>;
-
-  [[nodiscard]] auto
-  create_image_view(const vk::Image& image, const vk::Format& format,
-                    const vk::ImageAspectFlags image_aspect) const
-      -> vk::UniqueImageView;
-
-  template <typename Func> auto submit_one_time_commands(Func&& f) -> void;
 };
 
 static void framebuffer_resize_callback(GLFWwindow* window, int /*width*/,
@@ -1222,83 +1140,4 @@ try {
   fmt::print(stderr, "Error: {}\n", e.what());
 } catch (...) {
   std::fputs("Unknown exception thrown!\n", stderr);
-}
-
-[[nodiscard]] auto
-Application::create_image(std::uint32_t width, std::uint32_t height,
-                          vk::Format format, vk::ImageTiling tiling,
-                          vk::ImageUsageFlags usage,
-                          vk::MemoryPropertyFlags properties)
-    -> std::tuple<vk::UniqueImage, vk::UniqueDeviceMemory>
-{
-  const vk::ImageCreateInfo image_create_info{{},
-                                              vk::ImageType::e2D,
-                                              format,
-                                              vk::Extent3D{width, height, 1},
-                                              1,
-                                              1,
-                                              vk::SampleCountFlagBits::e1,
-                                              tiling,
-                                              usage,
-                                              vk::SharingMode::eExclusive,
-                                              0,
-                                              nullptr,
-                                              vk::ImageLayout::eUndefined};
-  auto image = device_->createImageUnique(image_create_info);
-  const auto memory_requirement = device_->getImageMemoryRequirements(*image);
-
-  const vk::MemoryAllocateInfo malloc_info{
-      memory_requirement.size,
-      find_memory_type(memory_requirement.memoryTypeBits, properties)};
-  auto image_memory = device_->allocateMemoryUnique(malloc_info);
-  device_->bindImageMemory(*image, *image_memory, 0);
-
-  return {std::move(image), std::move(image_memory)};
-}
-
-[[nodiscard]] auto
-Application::create_image_view(const vk::Image& image, const vk::Format& format,
-                               const vk::ImageAspectFlags image_aspect) const
-    -> vk::UniqueImageView
-{
-  vk::ImageSubresourceRange subresource_range;
-  subresource_range.setAspectMask(image_aspect)
-      .setBaseMipLevel(0)
-      .setLevelCount(1)
-      .setBaseArrayLayer(0)
-      .setLayerCount(1);
-
-  vk::ImageViewCreateInfo create_info;
-  create_info.setImage(image)
-      .setViewType(vk::ImageViewType::e2D)
-      .setFormat(format)
-      .setComponents(vk::ComponentMapping{})
-      .setSubresourceRange(subresource_range);
-
-  return device_->createImageViewUnique(create_info);
-}
-
-template <typename Func>
-auto Application::submit_one_time_commands(Func&& f) -> void
-{
-  const vk::CommandBufferAllocateInfo alloc_info{
-      *command_pool_, vk::CommandBufferLevel::ePrimary, 1};
-
-  vk::CommandBuffer command_buffer;
-  device_->allocateCommandBuffers(&alloc_info, &command_buffer);
-
-  const vk::CommandBufferBeginInfo begin_info{
-      vk::CommandBufferUsageFlagBits::eOneTimeSubmit};
-  command_buffer.begin(begin_info);
-
-  std::forward<Func>(f)(command_buffer);
-
-  command_buffer.end();
-
-  vk::SubmitInfo submit_info;
-  submit_info.setCommandBufferCount(1).setPCommandBuffers(&command_buffer);
-  graphics_queue_.submit(1, &submit_info, vk::Fence{});
-  graphics_queue_.waitIdle();
-
-  device_->freeCommandBuffers(*command_pool_, 1, &command_buffer);
 }
