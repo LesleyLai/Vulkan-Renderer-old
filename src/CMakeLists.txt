@@ -4,7 +4,6 @@ add_executable(VulkanRenderer "main.cpp"
     "buffer_utils.hpp" "buffer_utils.cpp"
     "camera.hpp"
     "graphics_pipeline.hpp" "graphics_pipeline.cpp"
-    "gltf.hpp" "gltf.cpp"
     "shader_module.hpp" "shader_module.cpp"
     "window.hpp" "window.cpp")
 target_link_libraries(VulkanRenderer
@@ -30,10 +29,6 @@ compile_shader(fragShader
 
 target_compile_definitions(VulkanRenderer PUBLIC
     GLM_FORCE_RADIANS GLM_FORCE_DEPTH_ZERO_TO_ONE)
-
-target_include_directories(VulkanRenderer PRIVATE
-    ${CMAKE_SOURCE_DIR}/third-party/tinygltf
-    )
 
 add_dependencies(VulkanRenderer vertShader)
 add_dependencies(VulkanRenderer fragShader)

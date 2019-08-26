@@ -21,7 +21,6 @@
 
 #include "buffer_utils.hpp"
 #include "camera.hpp"
-#include "gltf.hpp"
 #include "graphics_pipeline.hpp"
 #include "shader_module.hpp"
 #include "window.hpp"
@@ -741,7 +740,7 @@ private:
 
   auto load_model() -> void
   {
-    vulkan::Model model = vulkan::load_gltf_files("models/Box.gltf");
+    // vulkan::Model model = vulkan::load_gltf_files("models/Box.gltf");
   }
 
   auto create_vertex_buffer() -> void
