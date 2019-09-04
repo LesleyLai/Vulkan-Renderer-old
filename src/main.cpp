@@ -21,6 +21,7 @@
 
 #include "buffer_utils.hpp"
 #include "camera.hpp"
+#include "gltf.hpp"
 #include "graphics_pipeline.hpp"
 #include "shader_module.hpp"
 #include "window.hpp"
@@ -212,10 +213,10 @@ public:
     create_render_pass();
     create_descriptor_set_layout();
 
-    vertex_shader_ =
-        vulkan::create_shader_module("shaders/shader.vert.spv", *device_);
-    frag_shader_ =
-        vulkan::create_shader_module("shaders/shader.frag.spv", *device_);
+    vertex_shader_ = vulkan::create_shader_module_from_file(
+        "shaders/shader.vert.spv", *device_);
+    frag_shader_ = vulkan::create_shader_module_from_file(
+        "shaders/shader.frag.spv", *device_);
 
     pipeline_layout_ = vulkan::create_graphics_pipeline_layout(
         *device_, *descriptor_set_layout_);
@@ -740,7 +741,7 @@ private:
 
   auto load_model() -> void
   {
-    // vulkan::Model model = vulkan::load_gltf_files("models/Box.gltf");
+    GltfScene scene = load_gltf_scene("models/Box.gltf");
   }
 
   auto create_vertex_buffer() -> void
@@ -1131,8 +1132,7 @@ static void framebuffer_resize_callback(GLFWwindow* window, int /*width*/,
   app->frame_buffer_resized = true;
 }
 
-int main()
-try {
+int main() try {
   Application app;
   app.exec();
 } catch (const std::exception& e) {

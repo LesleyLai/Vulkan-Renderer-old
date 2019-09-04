@@ -3,13 +3,16 @@ find_package(Vulkan)
 add_executable(VulkanRenderer "main.cpp"
     "buffer_utils.hpp" "buffer_utils.cpp"
     "camera.hpp"
+    "gltf.hpp" "gltf.cpp"
     "graphics_pipeline.hpp" "graphics_pipeline.cpp"
     "shader_module.hpp" "shader_module.cpp"
-    "window.hpp" "window.cpp")
+    "window.hpp" "window.cpp"
+    "utils.hpp" "utils.cpp")
 target_link_libraries(VulkanRenderer
     PRIVATE compiler_warnings
     Vulkan::Vulkan
     CONAN_PKG::fmt CONAN_PKG::glfw CONAN_PKG::glm CONAN_PKG::stb
+    CONAN_PKG::rapidjson
     )
 
 set_target_properties(VulkanRenderer PROPERTIES RUNTIME_OUTPUT_DIRECTORY

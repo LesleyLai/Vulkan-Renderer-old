@@ -8,11 +8,11 @@
 
 namespace vulkan {
 
-[[nodiscard]] auto create_shader_module(const std::string& filename,
-                                        const vk::Device& device)
+[[nodiscard]] auto create_shader_module_from_file(std::string_view filename,
+                                                  const vk::Device& device)
     -> vk::UniqueShaderModule;
 
-[[nodiscard]] auto create_shader_module(const std::vector<char>& code,
+[[nodiscard]] auto create_shader_module(std::string_view code,
                                         const vk::Device& device)
     -> vk::UniqueShaderModule;
 

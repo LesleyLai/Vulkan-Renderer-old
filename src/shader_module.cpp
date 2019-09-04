@@ -2,36 +2,18 @@
 #include <string>
 
 #include "shader_module.hpp"
+#include "utils.hpp"
 
 namespace vulkan {
 
-[[nodiscard]] static auto read_file(const std::string& filename)
-    -> std::vector<char>
-{
-  std::ifstream file(filename, std::ios::ate | std::ios::binary);
-
-  if (!file.is_open()) {
-    throw std::runtime_error("failed to open file: " + filename);
-  }
-
-  size_t file_size = static_cast<size_t>(file.tellg());
-  std::vector<char> buffer;
-  buffer.resize(file_size);
-
-  file.seekg(0);
-  file.read(buffer.data(), static_cast<std::size_t>(file_size));
-
-  return buffer;
-}
-
-[[nodiscard]] auto create_shader_module(const std::string& filename,
-                                        const vk::Device& device)
+[[nodiscard]] auto create_shader_module_from_file(std::string_view filename,
+                                                  const vk::Device& device)
     -> vk::UniqueShaderModule
 {
   return create_shader_module(read_file(filename), device);
 }
 
-[[nodiscard]] auto create_shader_module(const std::vector<char>& code,
+[[nodiscard]] auto create_shader_module(std::string_view code,
                                         const vk::Device& device)
     -> vk::UniqueShaderModule
 {
